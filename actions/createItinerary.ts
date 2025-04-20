@@ -7,6 +7,7 @@ import { z } from "zod";
 const createItinerarySchema = z.object({
   interests: z.array(z.string()).min(1, "Select at least one interest"),
   travelMonth: z.string().min(1, "Select a travel month"),
+  budget: z.number().min(0, "Budget must be a positive number").optional(),
 });
 
 // Define a type for the returned itinerary
@@ -28,6 +29,7 @@ type ItineraryCity = {
   rating: number;
   description: string;
   best_time_to_visit: string[];
+  estimated_daily_cost: number;
 };
 
 type ItineraryResult = {
@@ -41,6 +43,7 @@ type ItineraryResult = {
 export async function createItinerary(formData: {
   interests: string[];
   travelMonth: string;
+  budget?: number;
 }): Promise<ItineraryResult> {
   try {
     console.log(
@@ -49,7 +52,7 @@ export async function createItinerary(formData: {
     );
 
     const validatedData = createItinerarySchema.parse(formData);
-    const { interests, travelMonth } = validatedData;
+    const { interests, travelMonth, budget } = validatedData;
 
     const supabase = await createClient();
 
@@ -202,6 +205,51 @@ export async function createItinerary(formData: {
         // Get hotels for this city
         const cityHotels = hotelsByCity[cityLower] || [];
 
+        // Filter hotels by budget if provided
+        let filteredHotels = cityHotels;
+        if (budget !== undefined) {
+          filteredHotels = cityHotels.filter(
+            (hotel) => Number(hotel.Price_per_night) <= budget
+          );
+        }
+
+        // Calculate average attraction cost
+        const avgAttractionCost =
+          places.reduce(
+            (sum, place) => sum + (Number(place.price_fare) || 0),
+            0
+          ) / places.length;
+
+        // Calculate average hotel cost
+        let avgHotelCost = 0;
+        if (filteredHotels.length > 0) {
+          avgHotelCost =
+            filteredHotels.reduce(
+              (sum, hotel) => sum + (Number(hotel.Price_per_night) || 0),
+              0
+            ) / filteredHotels.length;
+        } else if (cityHotels.length > 0) {
+          // If no hotels match budget but city has hotels, use average for estimation
+          avgHotelCost =
+            cityHotels.reduce(
+              (sum, hotel) => sum + (Number(hotel.Price_per_night) || 0),
+              0
+            ) / cityHotels.length;
+        }
+
+        // Estimate daily cost (hotel + 3 attractions + food estimate)
+        const estimatedDailyFood = 1500; // A rough estimate for food costs
+        const estimatedDailyCost =
+          avgHotelCost + avgAttractionCost * 3 + estimatedDailyFood;
+
+        // Skip this city if the daily cost exceeds the budget
+        if (budget !== undefined && estimatedDailyCost > budget) {
+          console.log(
+            `Skipping ${cityInfo.city} as daily cost ${estimatedDailyCost} exceeds budget ${budget}`
+          );
+          continue;
+        }
+
         citiesForInterest.push({
           city: cityInfo.city,
           state: places[0]?.state,
@@ -212,7 +260,7 @@ export async function createItinerary(formData: {
             interest: parseInterest(place.interest),
             price_fare: Number(place.price_fare) || 0,
           })),
-          hotels: cityHotels.map((hotel) => ({
+          hotels: filteredHotels.map((hotel) => ({
             name: hotel.Name || "Unknown Hotel",
             address: hotel.Address || "",
             rating: Number(hotel.Rating) || 0,
@@ -221,6 +269,7 @@ export async function createItinerary(formData: {
           rating: Number(cityInfo.rating) || 0,
           description: cityInfo.description || "",
           best_time_to_visit: cityInfo.best_time_to_visit,
+          estimated_daily_cost: Math.round(estimatedDailyCost),
         });
       }
 
@@ -235,7 +284,7 @@ export async function createItinerary(formData: {
       return {
         success: true,
         message:
-          "No matching destinations found for your interests and travel month.",
+          "No matching destinations found for your interests, travel month, and budget.",
         itinerary: {},
       };
     }
