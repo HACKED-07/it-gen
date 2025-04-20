@@ -21,10 +21,10 @@ type ItineraryCity = {
     price_fare: number;
   }[];
   hotels: {
-    name: string;
+    Hotel_name: string;
     address: string;
-    rating: number;
-    price_per_night: number;
+    Hotel_Rating: number;
+    Hotel_price: number;
   }[];
   rating: number;
   description: string;
@@ -209,7 +209,7 @@ export async function createItinerary(formData: {
         let filteredHotels = cityHotels;
         if (budget !== undefined) {
           filteredHotels = cityHotels.filter(
-            (hotel) => Number(hotel.Price_per_night) <= budget
+            (hotel) => Number(hotel.Hotel_price) <= budget
           );
         }
 
@@ -225,14 +225,14 @@ export async function createItinerary(formData: {
         if (filteredHotels.length > 0) {
           avgHotelCost =
             filteredHotels.reduce(
-              (sum, hotel) => sum + (Number(hotel.Price_per_night) || 0),
+              (sum, hotel) => sum + (Number(hotel.Hotel_price) || 0),
               0
             ) / filteredHotels.length;
         } else if (cityHotels.length > 0) {
           // If no hotels match budget but city has hotels, use average for estimation
           avgHotelCost =
             cityHotels.reduce(
-              (sum, hotel) => sum + (Number(hotel.Price_per_night) || 0),
+              (sum, hotel) => sum + (Number(hotel.Hotel_price) || 0),
               0
             ) / cityHotels.length;
         }
@@ -261,10 +261,10 @@ export async function createItinerary(formData: {
             price_fare: Number(place.price_fare) || 0,
           })),
           hotels: filteredHotels.map((hotel) => ({
-            name: hotel.Name || "Unknown Hotel",
+            Hotel_name: hotel.Hotel_name || "Unknown Hotel",
             address: hotel.Address || "",
-            rating: Number(hotel.Rating) || 0,
-            price_per_night: Number(hotel.Price_per_night) || 0,
+            Hotel_Rating: Number(hotel.Hotel_Rating) || 0,
+            Hotel_price: Number(hotel.Hotel_price) || 0,
           })),
           rating: Number(cityInfo.rating) || 0,
           description: cityInfo.description || "",
@@ -273,7 +273,23 @@ export async function createItinerary(formData: {
         });
       }
 
-      citiesForInterest.sort((a, b) => b.rating - a.rating);
+      // Sort cities by rating first, but if budget is specified, prioritize cities within budget
+      citiesForInterest.sort((a, b) => {
+        if (budget !== undefined) {
+          // If both are within budget or both exceed budget, sort by rating
+          if (
+            (a.estimated_daily_cost <= budget &&
+              b.estimated_daily_cost <= budget) ||
+            (a.estimated_daily_cost > budget && b.estimated_daily_cost > budget)
+          ) {
+            return b.rating - a.rating;
+          }
+          // Prioritize the one within budget
+          return a.estimated_daily_cost <= budget ? -1 : 1;
+        }
+        // Default sort by rating when no budget constraint
+        return b.rating - a.rating;
+      });
 
       if (citiesForInterest.length > 0) {
         itinerary[interest] = citiesForInterest;
@@ -284,7 +300,9 @@ export async function createItinerary(formData: {
       return {
         success: true,
         message:
-          "No matching destinations found for your interests, travel month, and budget.",
+          budget !== undefined
+            ? "No matching destinations found for your interests, travel month, and budget constraints."
+            : "No matching destinations found for your interests and travel month.",
         itinerary: {},
       };
     }

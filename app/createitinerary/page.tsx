@@ -32,15 +32,6 @@ const MONTHS = [
   "December",
 ];
 
-// Budget ranges for selection
-const BUDGET_RANGES = [
-  { label: "No limit", value: 0 },
-  { label: "Budget (< ₹3,000/day)", value: 3000 },
-  { label: "Mid-range (< ₹5,000/day)", value: 5000 },
-  { label: "Luxury (< ₹10,000/day)", value: 10000 },
-  { label: "Ultra Luxury (< ₹20,000/day)", value: 20000 },
-];
-
 // Define better types for the itinerary result that match the server action
 type Destination = {
   name: string;
@@ -50,10 +41,10 @@ type Destination = {
 };
 
 type Hotel = {
-  name: string;
+  Hotel_name: string;
   address: string;
-  rating: number;
-  price_per_night: number;
+  Hotel_Rating: number;
+  Hotel_price: number;
 };
 
 type ItineraryCity = {
@@ -76,37 +67,22 @@ type ItineraryResult = {
 };
 
 // Helper function to create daily plans
-const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => {
+const generateDailyPlans = (cityData: ItineraryCity) => {
   const { popular_destinations, hotels } = cityData;
 
   // Try to get the best hotel
   const selectedHotel =
     hotels && hotels.length > 0
-      ? hotels.sort((a, b) => b.rating - a.rating)[0]
+      ? hotels.sort((a, b) => b.Hotel_Rating - a.Hotel_Rating)[0]
       : null;
-
-  // Calculate total trip cost
-  const hotelCost = selectedHotel
-    ? selectedHotel.price_per_night * tripDuration
-    : 0;
 
   // Split destinations into days (max 3 per day)
   const destinationsPerDay = 3;
   const days: Array<{ day: number; activities: any[] }> = [];
 
-  // Limit places to what can be visited in the trip duration (minus arrival and departure days)
-  const maxAvailableDays = Math.max(1, tripDuration - 2);
-  const maxDestinations = maxAvailableDays * destinationsPerDay;
-  const limitedDestinations = popular_destinations.slice(
-    0,
-    maxDestinations + 2
-  ); // Add 2 for first/last day
-
-  for (let i = 0; i < limitedDestinations.length; i += destinationsPerDay) {
+  for (let i = 0; i < popular_destinations.length; i += destinationsPerDay) {
     const dayNumber = days.length + 1;
-    if (dayNumber > tripDuration) break; // Don't exceed trip duration
-
-    const dailyDestinations = limitedDestinations.slice(
+    const dailyDestinations = popular_destinations.slice(
       i,
       i + destinationsPerDay
     );
@@ -124,16 +100,10 @@ const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => {
           {
             time: "Afternoon",
             activity: selectedHotel
-              ? `Check-in at ${selectedHotel.name}`
+              ? `Check-in at ${selectedHotel.Hotel_name}`
               : `Check-in at your hotel`,
             description: selectedHotel
-              ? `Get settled at ${selectedHotel.name} (${
-                  selectedHotel.rating
-                }★) located at ${selectedHotel.address}.${
-                  selectedHotel.price_per_night
-                    ? " ₹" + selectedHotel.price_per_night + "/night"
-                    : ""
-                }`
+              ? `Get settled at ${selectedHotel.Hotel_name} (${selectedHotel.Hotel_Rating}★) located at ${selectedHotel.address}.`
               : "Get settled at your hotel and prepare for your adventure.",
           },
           ...dailyDestinations.map((dest, index) => ({
@@ -151,17 +121,14 @@ const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => {
       });
     }
     // Last day should include hotel check-out and departure
-    else if (
-      dayNumber === tripDuration ||
-      i + destinationsPerDay >= limitedDestinations.length
-    ) {
+    else if (i + destinationsPerDay >= popular_destinations.length) {
       days.push({
         day: dayNumber,
         activities: [
           {
             time: "Morning",
             activity: selectedHotel
-              ? `Check-out from ${selectedHotel.name}`
+              ? `Check-out from ${selectedHotel.Hotel_name}`
               : "Check-out from your hotel",
             description: "Pack your belongings and prepare for your final day.",
           },
@@ -207,31 +174,20 @@ const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => {
   return days;
 };
 
-// Function to format currency
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
-
 export default function ItineraryGenerator() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [travelMonth, setTravelMonth] = useState("");
+  const [budget, setBudget] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ItineraryResult | null>(null);
   const [error, setError] = useState("");
-  const [tripDuration, setTripDuration] = useState(3); // Default trip duration in days
+  const [tripDuration, setTripDuration] = useState("3"); // Default trip duration in days
   const [selectedCityIndex, setSelectedCityIndex] = useState<number | null>(
     null
   );
   const [selectedInterestKey, setSelectedInterestKey] = useState<string | null>(
     null
   );
-  const [budget, setBudget] = useState<number>(0); // Default no budget limit
-  const [customBudget, setCustomBudget] = useState<number>(0);
-  const [isCustomBudget, setIsCustomBudget] = useState(false);
 
   const handleInterestToggle = (interest: string) => {
     setSelectedInterests((prev) =>
@@ -239,16 +195,6 @@ export default function ItineraryGenerator() {
         ? prev.filter((i) => i !== interest)
         : [...prev, interest]
     );
-  };
-
-  const handleBudgetChange = (value: number) => {
-    if (value === -1) {
-      setIsCustomBudget(true);
-      setBudget(customBudget);
-    } else {
-      setIsCustomBudget(false);
-      setBudget(value);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -260,33 +206,33 @@ export default function ItineraryGenerator() {
     setSelectedInterestKey(null);
 
     try {
-      const budgetToUse = isCustomBudget ? customBudget : budget;
+      const parsedBudget = budget ? parseInt(budget) : undefined;
 
       console.log("Submitting form with:", {
         selectedInterests,
         travelMonth,
-        budget: budgetToUse > 0 ? budgetToUse : undefined,
+        budget: parsedBudget,
       });
 
-      const result = await createItinerary({
+      const response = await createItinerary({
         interests: selectedInterests,
         travelMonth,
-        budget: budgetToUse > 0 ? budgetToUse : undefined,
+        budget: parsedBudget,
       });
 
-      console.log("Received result:", result);
+      console.log("Received result:", response);
 
-      if (result.success) {
-        setResult(result);
+      if (response.success) {
+        setResult(response);
 
         // Select the first interest and city by default
-        if (result.itinerary && Object.keys(result.itinerary).length > 0) {
-          const firstInterest = Object.keys(result.itinerary)[0];
+        if (response.itinerary && Object.keys(response.itinerary).length > 0) {
+          const firstInterest = Object.keys(response.itinerary)[0];
           setSelectedInterestKey(firstInterest);
           setSelectedCityIndex(0);
         }
       } else {
-        setError(result.message || "Failed to create itinerary");
+        setError(response.message || "Failed to create itinerary");
       }
     } catch (err) {
       setError("An unexpected error occurred");
@@ -305,18 +251,7 @@ export default function ItineraryGenerator() {
       : null;
 
   // Generate daily plans for the selected city
-  const dailyPlans = selectedCity
-    ? generateDailyPlans(selectedCity, tripDuration)
-    : [];
-
-  // Calculate total trip cost
-  const calculateTripCost = () => {
-    if (!selectedCity) return null;
-
-    return selectedCity.estimated_daily_cost * tripDuration;
-  };
-
-  const totalTripCost = calculateTripCost();
+  const dailyPlans = selectedCity ? generateDailyPlans(selectedCity) : [];
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -346,7 +281,7 @@ export default function ItineraryGenerator() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <h2 className="text-lg font-semibold mb-3">
               When Are You Traveling?
@@ -373,58 +308,34 @@ export default function ItineraryGenerator() {
               min="1"
               max="14"
               value={tripDuration}
-              onChange={(e) => setTripDuration(parseInt(e.target.value))}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "") {
+                  setTripDuration(""); // Keep it as an empty string if the input is cleared
+                } else {
+                  const parsedValue = parseInt(value);
+                  if (!isNaN(parsedValue)) {
+                    setTripDuration(parsedValue.toString());
+                  }
+                }
+              }}
               className="w-full p-2 border rounded"
             />
           </div>
-        </div>
 
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Daily Budget</h2>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-              {BUDGET_RANGES.map((range) => (
-                <button
-                  key={range.value}
-                  type="button"
-                  className={`p-2 border rounded text-center text-sm ${
-                    !isCustomBudget && budget === range.value
-                      ? "bg-blue-100 border-blue-500"
-                      : "bg-white hover:bg-gray-50"
-                  }`}
-                  onClick={() => handleBudgetChange(range.value)}
-                >
-                  {range.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`p-2 border rounded text-center text-sm ${
-                  isCustomBudget
-                    ? "bg-blue-100 border-blue-500"
-                    : "bg-white hover:bg-gray-50"
-                }`}
-                onClick={() => handleBudgetChange(-1)}
-              >
-                Custom
-              </button>
-            </div>
-
-            {isCustomBudget && (
-              <div className="flex items-center">
-                <span className="text-lg mr-2">₹</span>
-                <input
-                  type="number"
-                  min="500"
-                  step="500"
-                  value={customBudget}
-                  onChange={(e) => setCustomBudget(parseInt(e.target.value))}
-                  className="w-full p-2 border rounded"
-                  placeholder="Enter daily budget"
-                />
-                <span className="ml-2 text-sm text-gray-500">per day</span>
-              </div>
-            )}
+          <div>
+            <h2 className="text-lg font-semibold mb-3">Daily Budget (₹)</h2>
+            <input
+              type="number"
+              min="0"
+              placeholder="Enter your daily budget"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              className="w-full p-2 border rounded"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Leave empty for no budget constraint
+            </p>
           </div>
         </div>
 
@@ -450,7 +361,7 @@ export default function ItineraryGenerator() {
           {!result.itinerary || Object.keys(result.itinerary).length === 0 ? (
             <p className="p-4 bg-yellow-50 border border-yellow-200 rounded">
               No destinations found for your selected criteria. Try different
-              interests, travel month, or adjusting your budget.
+              interests, travel month, or budget.
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -479,18 +390,14 @@ export default function ItineraryGenerator() {
                               setSelectedCityIndex(index);
                             }}
                           >
-                            <div className="flex justify-between">
-                              <span>
-                                {city.city}
-                                {city.state ? `, ${city.state}` : ""}
-                              </span>
-                              <span className="text-yellow-600 ml-1 text-xs">
-                                ({city.rating}★)
-                              </span>
-                            </div>
-                            <div className="text-xs text-green-600">
-                              {formatCurrency(city.estimated_daily_cost)}/day
-                            </div>
+                            {city.city}
+                            {city.state ? `, ${city.state}` : ""}
+                            <span className="text-yellow-600 ml-1 text-xs">
+                              ({city.rating}★)
+                            </span>
+                            <span className="text-green-600 block text-xs">
+                              ₹{city.estimated_daily_cost}/day
+                            </span>
                           </button>
                         </li>
                       ))}
@@ -504,24 +411,10 @@ export default function ItineraryGenerator() {
                 {selectedCity ? (
                   <div>
                     <div className="border-b pb-3 mb-4">
-                      <div className="flex justify-between items-start">
-                        <h3 className="text-xl font-semibold">
-                          {selectedCity.city}
-                          {selectedCity.state ? `, ${selectedCity.state}` : ""}
-                        </h3>
-                        <div className="text-right">
-                          <div className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">
-                            {formatCurrency(selectedCity.estimated_daily_cost)}
-                            /day
-                          </div>
-                          {totalTripCost && (
-                            <div className="text-sm text-gray-600 mt-1">
-                              Est. {formatCurrency(totalTripCost)} for{" "}
-                              {tripDuration} days
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <h3 className="text-xl font-semibold">
+                        {selectedCity.city}
+                        {selectedCity.state ? `, ${selectedCity.state}` : ""}
+                      </h3>
                       <p className="text-sm text-gray-600 mt-1">
                         {selectedCity.description}
                       </p>
@@ -533,106 +426,41 @@ export default function ItineraryGenerator() {
                           Best time:{" "}
                           {selectedCity.best_time_to_visit.join(", ")}
                         </span>
+                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
+                          Est. Daily Cost: ₹{selectedCity.estimated_daily_cost}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Budget breakdown */}
-                    <div className="mb-6 p-4 bg-green-50 rounded">
-                      <h4 className="font-semibold mb-2">Budget Breakdown</h4>
-                      <div className="grid grid-cols-3 gap-2 text-sm">
-                        <div className="border-r pr-2">
-                          <div className="font-medium">Accommodation</div>
-                          <div>
-                            {selectedCity.hotels &&
-                            selectedCity.hotels.length > 0
-                              ? formatCurrency(
-                                  selectedCity.hotels[0].price_per_night
-                                )
-                              : "N/A"}{" "}
-                            / night
-                          </div>
-                        </div>
-                        <div className="border-r px-2">
-                          <div className="font-medium">Daily Expenses</div>
-                          <div>
-                            {formatCurrency(selectedCity.estimated_daily_cost)}
-                          </div>
-                        </div>
-                        <div className="px-2">
-                          <div className="font-medium">
-                            Total ({tripDuration} days)
-                          </div>
-                          <div>
-                            {totalTripCost
-                              ? formatCurrency(totalTripCost)
-                              : "N/A"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Daily Itinerary */}
-                    <div className="space-y-6">
-                      <h4 className="font-semibold">
-                        Your {tripDuration}-Day Itinerary
-                      </h4>
-
-                      {dailyPlans.map((day) => (
-                        <div key={day.day} className="border rounded p-4">
-                          <h5 className="font-medium mb-2">Day {day.day}</h5>
-
-                          <div className="space-y-3">
-                            {day.activities.map((activity, idx) => (
-                              <div key={idx} className="grid grid-cols-4 gap-2">
-                                <div className="font-medium text-sm">
-                                  {activity.time}
-                                </div>
-                                <div className="col-span-3">
-                                  <div className="font-medium">
-                                    {activity.activity}
-                                  </div>
-                                  <div className="text-sm text-gray-600">
-                                    {activity.description}
-                                  </div>
-                                  {activity.price && (
-                                    <div className="text-xs text-green-600">
-                                      {activity.price}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Accommodation */}
-                    {selectedCity?.hotels && selectedCity.hotels.length > 0 && (
-                      <div className="mt-6">
-                        <h4 className="font-semibold mb-3">
+                    {/* Hotel information */}
+                    {selectedCity.hotels && selectedCity.hotels.length > 0 && (
+                      <div className="mb-6 p-4 bg-gray-50 rounded">
+                        <h4 className="font-semibold mb-2">
                           Recommended Accommodation
                         </h4>
-
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                           {selectedCity.hotels
                             .slice(0, 3)
                             .map((hotel, index) => (
-                              <div key={index} className="border rounded p-3">
-                                <div className="flex justify-between">
+                              <div
+                                key={index}
+                                className="flex justify-between border-b last:border-b-0 pb-2"
+                              >
+                                <div>
                                   <div className="font-medium">
-                                    {hotel.name}
+                                    {hotel.Hotel_name}
                                   </div>
+                                  <div className="text-xs text-gray-600">
+                                    {hotel.address}
+                                  </div>
+                                </div>
+                                <div className="text-right">
                                   <div className="text-yellow-600">
-                                    {hotel.rating}★
+                                    {hotel.Hotel_Rating}★
                                   </div>
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                  {hotel.address}
-                                </div>
-                                <div className="text-sm text-green-600">
-                                  {formatCurrency(hotel.price_per_night)} per
-                                  night
+                                  <div className="text-sm font-medium">
+                                    ₹{hotel.Hotel_price}/night
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -640,52 +468,113 @@ export default function ItineraryGenerator() {
                       </div>
                     )}
 
-                    {/* Popular Destinations */}
-                    <div className="mt-6">
-                      <h4 className="font-semibold mb-3">
-                        Popular Attractions
-                      </h4>
+                    {/* Day-by-day itinerary */}
+                    <h4 className="font-semibold mb-3">Day-by-Day Itinerary</h4>
+                    <div className="space-y-6">
+                      {dailyPlans.map((day) => (
+                        <div key={day.day} className="border rounded shadow-sm">
+                          <div className="bg-blue-600 text-white p-2 rounded-t">
+                            <h5 className="font-medium">Day {day.day}</h5>
+                          </div>
+                          <div className="p-4">
+                            <ul className="space-y-4">
+                              {day.activities.map((activity, index) => (
+                                <li
+                                  key={index}
+                                  className="border-b last:border-b-0 pb-3"
+                                >
+                                  <div className="flex items-start">
+                                    <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs w-20 text-center">
+                                      {activity.time}
+                                    </div>
+                                    <div className="ml-3">
+                                      <div className="font-medium">
+                                        {activity.activity}
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        {activity.description}
+                                      </div>
+                                      {activity.price && (
+                                        <div className="text-sm text-green-600 mt-1">
+                                          {activity.price}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {selectedCity.popular_destinations.map(
-                          (destination, index) => (
-                            <div key={index} className="border rounded p-3">
-                              <div className="flex justify-between">
-                                <div className="font-medium">
-                                  {destination.name}
-                                </div>
-                                <div className="text-yellow-600">
-                                  {destination.google_rating.toFixed(1)}★
-                                </div>
-                              </div>
-                              <div className="text-xs mt-1">
-                                {destination.interest.map((int, i) => (
-                                  <span
-                                    key={i}
-                                    className="inline-block bg-blue-50 text-blue-700 px-2 py-1 rounded mr-1 mb-1"
-                                  >
-                                    {int}
-                                  </span>
-                                ))}
-                              </div>
-                              {destination.price_fare > 0 && (
-                                <div className="text-sm text-green-600 mt-1">
-                                  Entry fee:{" "}
-                                  {formatCurrency(destination.price_fare)}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        )}
+                    {/* Budget summary */}
+                    <div className="mt-6 p-4 bg-green-50 rounded border border-green-200">
+                      <h4 className="font-semibold mb-2">Budget Summary</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span>Accommodation (per night):</span>
+                          <span className="font-medium">
+                            ₹
+                            {selectedCity.hotels &&
+                            selectedCity.hotels.length > 0
+                              ? Math.min(
+                                  ...selectedCity.hotels.map(
+                                    (h) => h.Hotel_price
+                                  )
+                                )
+                              : "N/A"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Average attraction cost:</span>
+                          <span className="font-medium">
+                            ₹
+                            {selectedCity.popular_destinations.reduce(
+                              (sum, dest) => sum + dest.price_fare,
+                              0
+                            ) / (selectedCity.popular_destinations.length || 1)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Estimated daily food:</span>
+                          <span className="font-medium">₹1,500</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-2">
+                          <span className="font-semibold">
+                            Total daily cost:
+                          </span>
+                          <span className="font-semibold">
+                            ₹{selectedCity.estimated_daily_cost}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-t pt-2">
+                          <span className="font-semibold">
+                            Total trip cost ({tripDuration} days):
+                          </span>
+                          <span className="font-semibold">
+                            ₹
+                            {selectedCity.estimated_daily_cost *
+                              parseInt(tripDuration)}
+                          </span>
+                        </div>
                       </div>
+                    </div>
+
+                    {/* Print button */}
+                    <div className="mt-6 text-right">
+                      <button
+                        onClick={() => window.print()}
+                        className="bg-gray-600 text-white py-1 px-4 rounded text-sm"
+                      >
+                        Print Itinerary
+                      </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="border rounded p-6 bg-gray-50 text-center">
-                    <p>
-                      Select a destination from the list to view detailed
-                      itinerary
-                    </p>
+                  <div className="flex h-full items-center justify-center text-gray-500 p-8 border rounded">
+                    Select a destination to view your personalized itinerary
                   </div>
                 )}
               </div>
