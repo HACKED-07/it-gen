@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/utils/supbase/server";
+import { createClient } from "@/utils/supbase/client";
 import { z } from "zod";
 
 // Define a validation schema for the input
@@ -54,7 +54,7 @@ export async function createItinerary(formData: {
     const validatedData = createItinerarySchema.parse(formData);
     const { interests, travelMonth, budget } = validatedData;
 
-    const supabase = await createClient();
+    const supabase = createClient();
 
     if (!supabase) {
       console.error("Failed to initialize Supabase client");
