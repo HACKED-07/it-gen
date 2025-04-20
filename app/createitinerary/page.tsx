@@ -42,7 +42,7 @@ type Destination = {
 
 type Hotel = {
   Hotel_name: string;
-  address: string;
+  City: string;
   Hotel_Rating: number;
   Hotel_price: number;
 };
@@ -103,7 +103,7 @@ const generateDailyPlans = (cityData: ItineraryCity) => {
               ? `Check-in at ${selectedHotel.Hotel_name}`
               : `Check-in at your hotel`,
             description: selectedHotel
-              ? `Get settled at ${selectedHotel.Hotel_name} (${selectedHotel.Hotel_Rating}★) located at ${selectedHotel.address}.`
+              ? `Get settled at ${selectedHotel.Hotel_name} (${selectedHotel.Hotel_Rating}★) located at ${selectedHotel.City}.`
               : "Get settled at your hotel and prepare for your adventure.",
           },
           ...dailyDestinations.map((dest, index) => ({
@@ -188,6 +188,7 @@ export default function ItineraryGenerator() {
   const [selectedInterestKey, setSelectedInterestKey] = useState<string | null>(
     null
   );
+  const [showCustomBudget, setShowCustomBudget] = useState(false);
 
   const handleInterestToggle = (interest: string) => {
     setSelectedInterests((prev) =>
@@ -207,25 +208,15 @@ export default function ItineraryGenerator() {
 
     try {
       const parsedBudget = budget ? parseInt(budget) : undefined;
-
-      console.log("Submitting form with:", {
-        selectedInterests,
-        travelMonth,
-        budget: parsedBudget,
-      });
-
       const response = await createItinerary({
         interests: selectedInterests,
         travelMonth,
         budget: parsedBudget,
       });
 
-      console.log("Received result:", response);
-
       if (response.success) {
         setResult(response);
-
-        // Select the first interest and city by default
+        // Select first interest & city by default
         if (response.itinerary && Object.keys(response.itinerary).length > 0) {
           const firstInterest = Object.keys(response.itinerary)[0];
           setSelectedInterestKey(firstInterest);
@@ -234,9 +225,8 @@ export default function ItineraryGenerator() {
       } else {
         setError(response.message || "Failed to create itinerary");
       }
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred");
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -258,20 +248,20 @@ export default function ItineraryGenerator() {
       <h1 className="text-2xl font-bold mb-6">Create Your Travel Itinerary</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Interests */}
         <div>
           <h2 className="text-lg font-semibold mb-3">Select Your Interests</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {INTEREST_CATEGORIES.map((interest) => (
-              <div key={interest} className="flex items-center">
+              <label key={interest} className="flex items-center">
                 <input
                   type="checkbox"
-                  id={interest}
                   checked={selectedInterests.includes(interest)}
                   onChange={() => handleInterestToggle(interest)}
                   className="mr-2 h-4 w-4"
                 />
-                <label htmlFor={interest}>{interest}</label>
-              </div>
+                {interest}
+              </label>
             ))}
           </div>
           {selectedInterests.length === 0 && (
@@ -281,7 +271,8 @@ export default function ItineraryGenerator() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Month, Duration & Budget */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <h2 className="text-lg font-semibold mb-3">
               When Are You Traveling?
@@ -308,41 +299,125 @@ export default function ItineraryGenerator() {
               min="1"
               max="14"
               value={tripDuration}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === "") {
-                  setTripDuration(""); // Keep it as an empty string if the input is cleared
-                } else {
-                  const parsedValue = parseInt(value);
-                  if (!isNaN(parsedValue)) {
-                    setTripDuration(parsedValue.toString());
-                  }
-                }
+              onChange={(e) => setTripDuration(e.target.value)}
+              className="w-full p-2 border rounded"
+            />
+          </div>
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Daily Budget</h2>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => {
+                setBudget("");
+                setShowCustomBudget(false);
               }}
-              className="w-full p-2 border rounded"
-            />
+              className={`p-3 border rounded text-center hover:bg-gray-50 ${
+                budget === "" && !showCustomBudget
+                  ? "bg-blue-50 border-blue-500"
+                  : ""
+              }`}
+            >
+              No limit
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBudget("3000");
+                setShowCustomBudget(false);
+              }}
+              className={`p-3 border rounded text-center hover:bg-gray-50 ${
+                budget === "3000" && !showCustomBudget
+                  ? "bg-blue-50 border-blue-500"
+                  : ""
+              }`}
+            >
+              Budget
+              <br />
+              ₹3,000/day
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBudget("5000");
+                setShowCustomBudget(false);
+              }}
+              className={`p-3 border rounded text-center hover:bg-gray-50 ${
+                budget === "5000" && !showCustomBudget
+                  ? "bg-blue-50 border-blue-500"
+                  : ""
+              }`}
+            >
+              Mid-range
+              <br />
+              ₹5,000/day
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBudget("10000");
+                setShowCustomBudget(false);
+              }}
+              className={`p-3 border rounded text-center hover:bg-gray-50 ${
+                budget === "10000" && !showCustomBudget
+                  ? "bg-blue-50 border-blue-500"
+                  : ""
+              }`}
+            >
+              Luxury
+              <br />
+              ₹10,000/day
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBudget("20000");
+                setShowCustomBudget(false);
+              }}
+              className={`p-3 border rounded text-center hover:bg-gray-50 ${
+                budget === "20000" && !showCustomBudget
+                  ? "bg-blue-50 border-blue-500"
+                  : ""
+              }`}
+            >
+              Ultra Luxury
+              <br />
+              ₹20,000/day
+            </button>
           </div>
-
-          <div>
-            <h2 className="text-lg font-semibold mb-3">Daily Budget (₹)</h2>
-            <input
-              type="number"
-              min="0"
-              placeholder="Enter your daily budget"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              className="w-full p-2 border rounded"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Leave empty for no budget constraint
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowCustomBudget(!showCustomBudget);
+              if (!showCustomBudget) setBudget("");
+            }}
+            className={`p-3 border rounded w-full md:w-auto hover:bg-gray-50 ${
+              showCustomBudget ? "bg-blue-50 border-blue-500" : ""
+            }`}
+          >
+            Custom
+          </button>
+          {showCustomBudget && (
+            <div className="mt-3 flex items-center">
+              <span className="text-xl mr-2">₹</span>
+              <input
+                type="number"
+                min="0"
+                placeholder="Enter your daily budget"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                className="flex-grow p-2 border rounded"
+              />
+              <span className="ml-2 text-gray-500">per day</span>
+            </div>
+          )}
         </div>
 
         <button
           type="submit"
           disabled={isLoading || selectedInterests.length === 0 || !travelMonth}
-          className="bg-blue-600 text-white py-2 px-4 rounded disabled:bg-gray-400"
+          className="bg-blue-600 text-white py-2 px-4 rounded disabled:bg-gray-400 hover:cursor-pointer hover:bg-blue-700"
         >
           {isLoading ? "Creating Itinerary..." : "Create Itinerary"}
         </button>
@@ -365,29 +440,27 @@ export default function ItineraryGenerator() {
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Left sidebar - Interest categories and cities */}
+              {/* Left sidebar */}
               <div className="md:col-span-1 border rounded p-4 bg-gray-50">
                 <h3 className="font-semibold mb-3">Suggested Destinations</h3>
-
                 {Object.entries(result.itinerary).map(([interest, cities]) => (
                   <div key={interest} className="mb-4">
                     <h4 className="text-sm font-medium bg-blue-50 p-1 rounded">
                       {interest}
                     </h4>
-
                     <ul className="mt-2 space-y-1">
-                      {cities.map((city, index) => (
-                        <li key={index}>
+                      {cities.map((city, idx) => (
+                        <li key={idx}>
                           <button
                             className={`text-left w-full p-1 text-sm rounded hover:bg-blue-100 ${
                               selectedInterestKey === interest &&
-                              selectedCityIndex === index
+                              selectedCityIndex === idx
                                 ? "bg-blue-100 font-medium"
                                 : ""
                             }`}
                             onClick={() => {
                               setSelectedInterestKey(interest);
-                              setSelectedCityIndex(index);
+                              setSelectedCityIndex(idx);
                             }}
                           >
                             {city.city}
@@ -406,10 +479,10 @@ export default function ItineraryGenerator() {
                 ))}
               </div>
 
-              {/* Right content - Selected city itinerary */}
+              {/* Right content */}
               <div className="md:col-span-2">
                 {selectedCity ? (
-                  <div>
+                  <>
                     <div className="border-b pb-3 mb-4">
                       <h3 className="text-xl font-semibold">
                         {selectedCity.city}
@@ -432,43 +505,39 @@ export default function ItineraryGenerator() {
                       </div>
                     </div>
 
-                    {/* Hotel information */}
-                    {selectedCity.hotels && selectedCity.hotels.length > 0 && (
+                    {/* Hotels */}
+                    {selectedCity.hotels.length > 0 && (
                       <div className="mb-6 p-4 bg-gray-50 rounded">
                         <h4 className="font-semibold mb-2">
                           Recommended Accommodation
                         </h4>
-                        <div className="space-y-2">
-                          {selectedCity.hotels
-                            .slice(0, 3)
-                            .map((hotel, index) => (
-                              <div
-                                key={index}
-                                className="flex justify-between border-b last:border-b-0 pb-2"
-                              >
-                                <div>
-                                  <div className="font-medium">
-                                    {hotel.Hotel_name}
-                                  </div>
-                                  <div className="text-xs text-gray-600">
-                                    {hotel.address}
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-yellow-600">
-                                    {hotel.Hotel_Rating}★
-                                  </div>
-                                  <div className="text-sm font-medium">
-                                    ₹{hotel.Hotel_price}/night
-                                  </div>
-                                </div>
+                        {selectedCity.hotels.slice(0, 3).map((hotel, i) => (
+                          <div
+                            key={i}
+                            className="flex justify-between border-b last:border-b-0 pb-2"
+                          >
+                            <div>
+                              <div className="font-medium">
+                                {hotel.Hotel_name}
                               </div>
-                            ))}
-                        </div>
+                              <div className="text-xs text-gray-600">
+                                {hotel.City}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-yellow-600">
+                                {hotel.Hotel_Rating}★
+                              </div>
+                              <div className="text-sm font-medium">
+                                ₹{hotel.Hotel_price}/night
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
 
-                    {/* Day-by-day itinerary */}
+                    {/* Day-by-day */}
                     <h4 className="font-semibold mb-3">Day-by-Day Itinerary</h4>
                     <div className="space-y-6">
                       {dailyPlans.map((day) => (
@@ -478,25 +547,25 @@ export default function ItineraryGenerator() {
                           </div>
                           <div className="p-4">
                             <ul className="space-y-4">
-                              {day.activities.map((activity, index) => (
+                              {day.activities.map((act, idx) => (
                                 <li
-                                  key={index}
+                                  key={idx}
                                   className="border-b last:border-b-0 pb-3"
                                 >
                                   <div className="flex items-start">
                                     <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs w-20 text-center">
-                                      {activity.time}
+                                      {act.time}
                                     </div>
                                     <div className="ml-3">
                                       <div className="font-medium">
-                                        {activity.activity}
+                                        {act.activity}
                                       </div>
                                       <div className="text-sm text-gray-600">
-                                        {activity.description}
+                                        {act.description}
                                       </div>
-                                      {activity.price && (
+                                      {act.price && (
                                         <div className="text-sm text-green-600 mt-1">
-                                          {activity.price}
+                                          {act.price}
                                         </div>
                                       )}
                                     </div>
@@ -517,8 +586,7 @@ export default function ItineraryGenerator() {
                           <span>Accommodation (per night):</span>
                           <span className="font-medium">
                             ₹
-                            {selectedCity.hotels &&
-                            selectedCity.hotels.length > 0
+                            {selectedCity.hotels.length > 0
                               ? Math.min(
                                   ...selectedCity.hotels.map(
                                     (h) => h.Hotel_price
@@ -531,10 +599,13 @@ export default function ItineraryGenerator() {
                           <span>Average attraction cost:</span>
                           <span className="font-medium">
                             ₹
-                            {selectedCity.popular_destinations.reduce(
-                              (sum, dest) => sum + dest.price_fare,
-                              0
-                            ) / (selectedCity.popular_destinations.length || 1)}
+                            {(
+                              selectedCity.popular_destinations.reduce(
+                                (sum, d) => sum + d.price_fare,
+                                0
+                              ) /
+                              (selectedCity.popular_destinations.length || 1)
+                            ).toFixed(0)}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -556,13 +627,13 @@ export default function ItineraryGenerator() {
                           <span className="font-semibold">
                             ₹
                             {selectedCity.estimated_daily_cost *
-                              parseInt(tripDuration)}
+                              parseInt(tripDuration, 10)}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Print button */}
+                    {/* Print */}
                     <div className="mt-6 text-right">
                       <button
                         onClick={() => window.print()}
@@ -571,7 +642,7 @@ export default function ItineraryGenerator() {
                         Print Itinerary
                       </button>
                     </div>
-                  </div>
+                  </>
                 ) : (
                   <div className="flex h-full items-center justify-center text-gray-500 p-8 border rounded">
                     Select a destination to view your personalized itinerary

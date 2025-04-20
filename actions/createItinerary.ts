@@ -22,7 +22,7 @@ type ItineraryCity = {
   }[];
   hotels: {
     Hotel_name: string;
-    address: string;
+    City: string;
     Hotel_Rating: number;
     Hotel_price: number;
   }[];
@@ -262,7 +262,7 @@ export async function createItinerary(formData: {
           })),
           hotels: filteredHotels.map((hotel) => ({
             Hotel_name: hotel.Hotel_name || "Unknown Hotel",
-            address: hotel.Address || "",
+            City: hotel.City || "",
             Hotel_Rating: Number(hotel.Hotel_Rating) || 0,
             Hotel_price: Number(hotel.Hotel_price) || 0,
           })),
