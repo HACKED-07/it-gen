@@ -1,9 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import type React from "react";
+
+import { useEffect, useState } from "react";
 import { createItinerary } from "@/actions/createItinerary";
-import { createClient } from "@/utils/supbase/client";
-import { redirect } from "next/navigation";
+import {
+  Bookmark,
+  BookmarkCheck,
+  Calendar,
+  Clock,
+  DollarSign,
+  Heart,
+  MapPin,
+  Printer,
+  Star,
+  Trash2,
+  Umbrella,
+} from "lucide-react";
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "@/hooks/use-toast";
 
 // Define interest categories based on the data
 const INTEREST_CATEGORIES = [
@@ -66,6 +94,18 @@ type ItineraryResult = {
   itinerary?: {
     [interest: string]: ItineraryCity[];
   };
+};
+
+type SavedItinerary = {
+  id: string;
+  date: string;
+  city: string;
+  interests: string[];
+  month: string;
+  duration: string;
+  budget: string;
+  estimatedCost: number;
+  cityData: ItineraryCity;
 };
 
 // Helper function to create daily plans
@@ -191,6 +231,29 @@ export function ItineraryGenerator() {
     null
   );
   const [showCustomBudget, setShowCustomBudget] = useState(false);
+  const [activeTab, setActiveTab] = useState("form");
+  const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>(
+    []
+  );
+  const [selectedSavedItinerary, setSelectedSavedItinerary] =
+    useState<SavedItinerary | null>(null);
+
+  // Load saved itineraries from localStorage on component mount
+  useEffect(() => {
+    const savedData = localStorage.getItem("savedItineraries");
+    if (savedData) {
+      try {
+        setSavedItineraries(JSON.parse(savedData));
+      } catch (e) {
+        console.error("Error loading saved itineraries:", e);
+      }
+    }
+  }, []);
+
+  // Save itineraries to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem("savedItineraries", JSON.stringify(savedItineraries));
+  }, [savedItineraries]);
 
   const handleInterestToggle = (interest: string) => {
     setSelectedInterests((prev) =>
@@ -209,7 +272,7 @@ export function ItineraryGenerator() {
     setSelectedInterestKey(null);
 
     try {
-      const parsedBudget = budget ? parseInt(budget) : undefined;
+      const parsedBudget = budget ? Number.parseInt(budget) : undefined;
       const response = await createItinerary({
         interests: selectedInterests,
         travelMonth,
@@ -218,6 +281,7 @@ export function ItineraryGenerator() {
 
       if (response.success) {
         setResult(response);
+        setActiveTab("results");
         // Select first interest & city by default
         if (response.itinerary && Object.keys(response.itinerary).length > 0) {
           const firstInterest = Object.keys(response.itinerary)[0];
@@ -245,418 +309,922 @@ export function ItineraryGenerator() {
   // Generate daily plans for the selected city
   const dailyPlans = selectedCity ? generateDailyPlans(selectedCity) : [];
 
+  // Generate daily plans for the selected saved itinerary
+  const savedItineraryDailyPlans = selectedSavedItinerary
+    ? generateDailyPlans(selectedSavedItinerary.cityData)
+    : [];
+
+  // Save the current itinerary
+  const saveItinerary = () => {
+    if (!selectedCity || !selectedInterestKey) return;
+
+    const newSavedItinerary: SavedItinerary = {
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString(),
+      city: selectedCity.city,
+      interests: [selectedInterestKey],
+      month: travelMonth,
+      duration: tripDuration,
+      budget: budget || "No limit",
+      estimatedCost:
+        selectedCity.estimated_daily_cost * Number.parseInt(tripDuration, 10),
+      cityData: selectedCity,
+    };
+
+    setSavedItineraries((prev) => [newSavedItinerary, ...prev]);
+    toast({
+      title: "Itinerary Saved",
+      description: `Your trip to ${selectedCity.city} has been saved successfully.`,
+    });
+  };
+
+  // Delete a saved itinerary
+  const deleteSavedItinerary = (id: string) => {
+    setSavedItineraries((prev) => prev.filter((item) => item.id !== id));
+    if (selectedSavedItinerary?.id === id) {
+      setSelectedSavedItinerary(null);
+    }
+    toast({
+      title: "Itinerary Deleted",
+      description: "The saved itinerary has been removed.",
+    });
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">Create Your Travel Itinerary</h1>
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Interests */}
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Select Your Interests</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {INTEREST_CATEGORIES.map((interest) => (
-              <label key={interest} className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={selectedInterests.includes(interest)}
-                  onChange={() => handleInterestToggle(interest)}
-                  className="mr-2 h-4 w-4"
-                />
-                {interest}
-              </label>
-            ))}
-          </div>
-          {selectedInterests.length === 0 && (
-            <p className="text-red-500 text-sm mt-1">
-              Please select at least one interest
-            </p>
-          )}
-        </div>
-
-        {/* Month, Duration & Budget */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <h2 className="text-lg font-semibold mb-3">
-              When Are You Traveling?
-            </h2>
-            <select
-              value={travelMonth}
-              onChange={(e) => setTravelMonth(e.target.value)}
-              className="w-full p-2 border rounded"
-              required
-            >
-              <option value="">Select a month</option>
-              {MONTHS.map((month) => (
-                <option key={month} value={month}>
-                  {month}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold mb-3">Trip Duration (Days)</h2>
-            <input
-              type="number"
-              min="1"
-              max="14"
-              value={tripDuration}
-              onChange={(e) => setTripDuration(e.target.value)}
-              className="w-full p-2 border rounded"
-            />
-          </div>
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Daily Budget</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
-            <button
-              type="button"
-              onClick={() => {
-                setBudget("");
-                setShowCustomBudget(false);
-              }}
-              className={`p-3 border rounded text-center hover:bg-gray-50 ${
-                budget === "" && !showCustomBudget
-                  ? "bg-blue-50 border-blue-500"
-                  : ""
-              }`}
-            >
-              No limit
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setBudget("3000");
-                setShowCustomBudget(false);
-              }}
-              className={`p-3 border rounded text-center hover:bg-gray-50 ${
-                budget === "3000" && !showCustomBudget
-                  ? "bg-blue-50 border-blue-500"
-                  : ""
-              }`}
-            >
-              Budget
-              <br />
-              ₹3,000/day
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setBudget("5000");
-                setShowCustomBudget(false);
-              }}
-              className={`p-3 border rounded text-center hover:bg-gray-50 ${
-                budget === "5000" && !showCustomBudget
-                  ? "bg-blue-50 border-blue-500"
-                  : ""
-              }`}
-            >
-              Mid-range
-              <br />
-              ₹5,000/day
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setBudget("10000");
-                setShowCustomBudget(false);
-              }}
-              className={`p-3 border rounded text-center hover:bg-gray-50 ${
-                budget === "10000" && !showCustomBudget
-                  ? "bg-blue-50 border-blue-500"
-                  : ""
-              }`}
-            >
-              Luxury
-              <br />
-              ₹10,000/day
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setBudget("20000");
-                setShowCustomBudget(false);
-              }}
-              className={`p-3 border rounded text-center hover:bg-gray-50 ${
-                budget === "20000" && !showCustomBudget
-                  ? "bg-blue-50 border-blue-500"
-                  : ""
-              }`}
-            >
-              Ultra Luxury
-              <br />
-              ₹20,000/day
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setShowCustomBudget(!showCustomBudget);
-              if (!showCustomBudget) setBudget("");
-            }}
-            className={`p-3 border rounded w-full md:w-auto hover:bg-gray-50 ${
-              showCustomBudget ? "bg-blue-50 border-blue-500" : ""
-            }`}
+    <div className="max-w-6xl mx-auto p-4 md:p-6">
+      <Card className="border-none shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-700 text-white rounded-t-lg">
+          <CardTitle className="text-3xl font-bold">
+            Discover Your Perfect Journey
+          </CardTitle>
+          <CardDescription className="text-blue-50 text-lg">
+            Create a personalized travel itinerary based on your interests and
+            preferences
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="w-full"
           >
-            Custom
-          </button>
-          {showCustomBudget && (
-            <div className="mt-3 flex items-center">
-              <span className="text-xl mr-2">₹</span>
-              <input
-                type="number"
-                min="0"
-                placeholder="Enter your daily budget"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                className="flex-grow p-2 border rounded"
-              />
-              <span className="ml-2 text-gray-500">per day</span>
+            <div className="px-6 pt-6">
+              <TabsList className="grid w-full grid-cols-3 mb-6">
+                <TabsTrigger value="form" className="text-base">
+                  Plan Your Trip
+                </TabsTrigger>
+                <TabsTrigger
+                  value="results"
+                  className="text-base"
+                  disabled={!result?.success}
+                >
+                  Your Itinerary
+                </TabsTrigger>
+                <TabsTrigger value="saved" className="text-base">
+                  Saved Trips ({savedItineraries.length})
+                </TabsTrigger>
+              </TabsList>
             </div>
-          )}
-        </div>
 
-        <button
-          type="submit"
-          disabled={isLoading || selectedInterests.length === 0 || !travelMonth}
-          className={`bg-blue-600 text-white py-2 px-4 rounded hover:cursor-pointer disabled:bg-gray-400 disabled:cursor-not-allowed ${
-            isLoading ? "cursor-not-allowed" : "hover:bg-blue-700"
-          } transitio duration-300`}
-        >
-          {isLoading ? "Creating Itinerary..." : "Create Itinerary"}
-        </button>
-      </form>
-
-      {error && (
-        <div className="mt-6 p-4 bg-red-100 text-red-700 rounded">{error}</div>
-      )}
-
-      {result && result.success && (
-        <div className="mt-8">
-          <h2 className="text-xl font-bold mb-4">
-            Your Personalized Itinerary
-          </h2>
-
-          {!result.itinerary || Object.keys(result.itinerary).length === 0 ? (
-            <p className="p-4 bg-yellow-50 border border-yellow-200 rounded">
-              No destinations found for your selected criteria. Try different
-              interests, travel month, or budget.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Left sidebar */}
-              <div className="md:col-span-1 border rounded p-4 bg-gray-50">
-                <h3 className="font-semibold mb-3">Suggested Destinations</h3>
-                {Object.entries(result.itinerary).map(([interest, cities]) => (
-                  <div key={interest} className="mb-4">
-                    <h4 className="text-sm font-medium bg-blue-50 p-1 rounded">
-                      {interest}
-                    </h4>
-                    <ul className="mt-2 space-y-1">
-                      {cities.map((city, idx) => (
-                        <li key={idx}>
-                          <button
-                            className={`text-left w-full p-1 text-sm rounded hover:bg-blue-100 ${
-                              selectedInterestKey === interest &&
-                              selectedCityIndex === idx
-                                ? "bg-blue-100 font-medium"
-                                : ""
-                            }`}
-                            onClick={() => {
-                              setSelectedInterestKey(interest);
-                              setSelectedCityIndex(idx);
-                            }}
-                          >
-                            {city.city}
-                            {city.state ? `, ${city.state}` : ""}
-                            <span className="text-yellow-600 ml-1 text-xs">
-                              ({city.rating}★)
-                            </span>
-                            <span className="text-green-600 block text-xs">
-                              ₹{city.estimated_daily_cost}/day
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+            <TabsContent value="form" className="px-6 pb-6 space-y-8">
+              <form onSubmit={handleSubmit} className="space-y-8">
+                {/* Interests */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Heart className="h-5 w-5 text-rose-500" />
+                    <h2 className="text-xl font-semibold">Travel Interests</h2>
                   </div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {INTEREST_CATEGORIES.map((interest) => (
+                      <div
+                        key={interest}
+                        onClick={() => handleInterestToggle(interest)}
+                        className={`
+                          flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all
+                          ${
+                            selectedInterests.includes(interest)
+                              ? "border-blue-500 bg-blue-50"
+                              : "border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                          }
+                        `}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedInterests.includes(interest)}
+                          onChange={() => {}}
+                          className="h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">{interest}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedInterests.length === 0 && (
+                    <p className="text-rose-500 text-sm">
+                      Please select at least one interest
+                    </p>
+                  )}
+                </div>
 
-              {/* Right content */}
-              <div className="md:col-span-2">
-                {selectedCity ? (
-                  <>
-                    <div className="border-b pb-3 mb-4">
-                      <h3 className="text-xl font-semibold">
-                        {selectedCity.city}
-                        {selectedCity.state ? `, ${selectedCity.state}` : ""}
-                      </h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {selectedCity.description}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">
-                          Rating: {selectedCity.rating}★
-                        </span>
-                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
-                          Best time:{" "}
-                          {selectedCity.best_time_to_visit.join(", ")}
-                        </span>
-                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
-                          Est. Daily Cost: ₹{selectedCity.estimated_daily_cost}
-                        </span>
+                {/* Month, Duration & Budget */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      <h2 className="text-xl font-semibold">
+                        When Are You Traveling?
+                      </h2>
+                    </div>
+                    <select
+                      value={travelMonth}
+                      onChange={(e) => setTravelMonth(e.target.value)}
+                      className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">Select a month</option>
+                      {MONTHS.map((month) => (
+                        <option key={month} value={month}>
+                          {month}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-blue-500" />
+                      <h2 className="text-xl font-semibold">Trip Duration</h2>
+                    </div>
+                    <div className="flex items-center">
+                      <input
+                        type="range"
+                        min="1"
+                        max="14"
+                        value={tripDuration}
+                        onChange={(e) => setTripDuration(e.target.value)}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      />
+                      <span className="ml-4 text-lg font-medium min-w-[4rem] text-center">
+                        {tripDuration}{" "}
+                        {Number.parseInt(tripDuration) === 1 ? "day" : "days"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-5 w-5 text-blue-500" />
+                    <h2 className="text-xl font-semibold">Daily Budget</h2>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudget("");
+                        setShowCustomBudget(false);
+                      }}
+                      className={`p-4 rounded-lg transition-all ${
+                        budget === "" && !showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      No limit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudget("3000");
+                        setShowCustomBudget(false);
+                      }}
+                      className={`p-4 rounded-lg transition-all ${
+                        budget === "3000" && !showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="font-medium">Budget</div>
+                      <div className="text-sm text-gray-600">₹3,000/day</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudget("5000");
+                        setShowCustomBudget(false);
+                      }}
+                      className={`p-4 rounded-lg transition-all ${
+                        budget === "5000" && !showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="font-medium">Mid-range</div>
+                      <div className="text-sm text-gray-600">₹5,000/day</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudget("10000");
+                        setShowCustomBudget(false);
+                      }}
+                      className={`p-4 rounded-lg transition-all ${
+                        budget === "10000" && !showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="font-medium">Luxury</div>
+                      <div className="text-sm text-gray-600">₹10,000/day</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudget("20000");
+                        setShowCustomBudget(false);
+                      }}
+                      className={`p-4 rounded-lg transition-all ${
+                        budget === "20000" && !showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="font-medium">Ultra Luxury</div>
+                      <div className="text-sm text-gray-600">₹20,000/day</div>
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCustomBudget(!showCustomBudget);
+                        if (!showCustomBudget) setBudget("");
+                      }}
+                      className={`p-3 rounded-lg transition-all w-full md:w-auto ${
+                        showCustomBudget
+                          ? "bg-blue-100 border-2 border-blue-500 text-blue-700 font-medium"
+                          : "border-2 border-gray-200 hover:border-blue-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      Custom Budget
+                    </button>
+                    {showCustomBudget && (
+                      <div className="flex items-center mt-3 p-3 border-2 border-gray-200 rounded-lg focus-within:border-blue-500">
+                        <span className="text-xl mr-2 text-gray-500">₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Enter your daily budget"
+                          value={budget}
+                          onChange={(e) => setBudget(e.target.value)}
+                          className="flex-grow p-1 focus:outline-none"
+                        />
+                        <span className="ml-2 text-gray-500">per day</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={
+                    isLoading || selectedInterests.length === 0 || !travelMonth
+                  }
+                  className="w-full py-6 text-lg bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 transition-all duration-300"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                      <span>Creating Your Perfect Itinerary...</span>
+                    </div>
+                  ) : (
+                    "Create My Itinerary"
+                  )}
+                </Button>
+              </form>
+
+              {error && (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-rose-700">
+                  {error}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="results" className="space-y-6">
+              {result && result.success && (
+                <div>
+                  {!result.itinerary ||
+                  Object.keys(result.itinerary).length === 0 ? (
+                    <div className="p-6">
+                      <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 flex flex-col items-center gap-4">
+                        <Umbrella className="h-12 w-12 text-amber-500" />
+                        <p className="text-center text-lg">
+                          No destinations found for your selected criteria. Try
+                          different interests, travel month, or budget.
+                        </p>
+                        <Button
+                          onClick={() => setActiveTab("form")}
+                          variant="outline"
+                          className="border-amber-500 text-amber-700 hover:bg-amber-100"
+                        >
+                          Modify Your Search
+                        </Button>
                       </div>
                     </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
+                      {/* Left sidebar */}
+                      <div className="md:col-span-1 border-r">
+                        <div className="p-4 bg-gray-50 border-b">
+                          <h3 className="font-semibold text-lg flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-blue-500" />
+                            Suggested Destinations
+                          </h3>
+                        </div>
+                        <ScrollArea className="h-[calc(100vh-300px)] md:h-auto">
+                          <div className="p-4">
+                            {Object.entries(result.itinerary).map(
+                              ([interest, cities]) => (
+                                <div key={interest} className="mb-6">
+                                  <h4 className="text-sm font-medium bg-blue-50 p-2 rounded-md text-blue-700 mb-2">
+                                    {interest}
+                                  </h4>
+                                  <div className="space-y-2">
+                                    {cities.map((city, idx) => (
+                                      <button
+                                        key={idx}
+                                        className={`w-full text-left p-3 rounded-md transition-all ${
+                                          selectedInterestKey === interest &&
+                                          selectedCityIndex === idx
+                                            ? "bg-blue-100 border-l-4 border-blue-500"
+                                            : "hover:bg-gray-50 border-l-4 border-transparent"
+                                        }`}
+                                        onClick={() => {
+                                          setSelectedInterestKey(interest);
+                                          setSelectedCityIndex(idx);
+                                        }}
+                                      >
+                                        <div className="font-medium">
+                                          {city.city}
+                                          {city.state ? `, ${city.state}` : ""}
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                          <Badge
+                                            variant="outline"
+                                            className="bg-amber-50 text-amber-700 border-amber-200"
+                                          >
+                                            <Star className="h-3 w-3 mr-1 fill-amber-500 text-amber-500" />
+                                            {city.rating}
+                                          </Badge>
+                                          <Badge
+                                            variant="outline"
+                                            className="bg-blue-50 text-blue-700 border-blue-200"
+                                          >
+                                            <DollarSign className="h-3 w-3 mr-1 text-blue-500" />
+                                            ₹{city.estimated_daily_cost}/day
+                                          </Badge>
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </ScrollArea>
+                      </div>
 
-                    {/* Hotels */}
-                    {selectedCity.hotels.length > 0 && (
-                      <div className="mb-6 p-4 bg-gray-50 rounded">
-                        <h4 className="font-semibold mb-2">
-                          Recommended Accommodation
-                        </h4>
-                        {selectedCity.hotels.slice(0, 3).map((hotel, i) => (
-                          <div
-                            key={i}
-                            className="flex justify-between border-b last:border-b-0 pb-2"
-                          >
-                            <div>
-                              <div className="font-medium">
-                                {hotel.Hotel_name}
+                      {/* Right content */}
+                      <div className="md:col-span-2 p-6">
+                        {selectedCity ? (
+                          <div className="space-y-6">
+                            <div className="space-y-4">
+                              <div className="flex justify-between items-start">
+                                <h2 className="text-2xl font-bold text-blue-800">
+                                  {selectedCity.city}
+                                  {selectedCity.state
+                                    ? `, ${selectedCity.state}`
+                                    : ""}
+                                </h2>
+                                <div className="flex gap-2">
+                                  <Button
+                                    onClick={saveItinerary}
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                  >
+                                    <Bookmark className="h-4 w-4" />
+                                    <span>Save</span>
+                                  </Button>
+                                  <Button
+                                    onClick={() => window.print()}
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                    <span>Print</span>
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-600">
-                                {hotel.City}
+
+                              <p className="text-gray-600 leading-relaxed">
+                                {selectedCity.description}
+                              </p>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-none">
+                                  <Star className="h-3.5 w-3.5 mr-1 fill-amber-500 text-amber-500" />
+                                  Rating: {selectedCity.rating}
+                                </Badge>
+                                <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100 border-none">
+                                  <Calendar className="h-3.5 w-3.5 mr-1 text-sky-500" />
+                                  Best time:{" "}
+                                  {selectedCity.best_time_to_visit.join(", ")}
+                                </Badge>
+                                <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-none">
+                                  <DollarSign className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                                  Est. Daily Cost: ₹
+                                  {selectedCity.estimated_daily_cost}
+                                </Badge>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div className="text-yellow-600">
-                                {hotel.Hotel_Rating}★
+
+                            <Separator />
+
+                            {/* Hotels */}
+                            {selectedCity.hotels.length > 0 && (
+                              <div>
+                                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                                  <Heart className="h-4 w-4 text-rose-500" />
+                                  Recommended Accommodation
+                                </h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {selectedCity.hotels
+                                    .slice(0, 3)
+                                    .map((hotel, i) => (
+                                      <Card key={i} className="overflow-hidden">
+                                        <div className="h-24 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center">
+                                          <span className="text-white text-xl font-bold">
+                                            {hotel.Hotel_name.charAt(0)}
+                                          </span>
+                                        </div>
+                                        <CardContent className="p-4">
+                                          <div className="font-semibold truncate">
+                                            {hotel.Hotel_name}
+                                          </div>
+                                          <div className="text-sm text-gray-500">
+                                            {hotel.City}
+                                          </div>
+                                          <div className="flex justify-between items-center mt-2">
+                                            <div className="flex items-center">
+                                              <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                                              <span className="ml-1 text-amber-600">
+                                                {hotel.Hotel_Rating}
+                                              </span>
+                                            </div>
+                                            <div className="font-medium text-blue-600">
+                                              ₹{hotel.Hotel_price}/night
+                                            </div>
+                                          </div>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                </div>
                               </div>
-                              <div className="text-sm font-medium">
-                                ₹{hotel.Hotel_price}/night
+                            )}
+
+                            <Separator />
+
+                            {/* Day-by-day */}
+                            <div>
+                              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-blue-500" />
+                                Day-by-Day Itinerary
+                              </h3>
+                              <div className="space-y-6">
+                                {dailyPlans.map((day) => (
+                                  <Card
+                                    key={day.day}
+                                    className="overflow-hidden"
+                                  >
+                                    <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-700 text-white py-3 px-4">
+                                      <CardTitle className="text-lg">
+                                        Day {day.day}
+                                      </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="p-0">
+                                      <div className="divide-y">
+                                        {day.activities.map((act, idx) => (
+                                          <div
+                                            key={idx}
+                                            className="p-4 hover:bg-gray-50 transition-colors"
+                                          >
+                                            <div className="flex items-start gap-3">
+                                              <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-medium min-w-[5rem] text-center">
+                                                {act.time}
+                                              </div>
+                                              <div>
+                                                <div className="font-medium">
+                                                  {act.activity}
+                                                </div>
+                                                <div className="text-sm text-gray-600 mt-1">
+                                                  {act.description}
+                                                </div>
+                                                {act.price && (
+                                                  <div className="text-sm text-blue-600 mt-1 font-medium">
+                                                    {act.price}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
                               </div>
+                            </div>
+
+                            {/* Budget summary */}
+                            <Card className="bg-blue-50 border-blue-200">
+                              <CardHeader className="pb-2">
+                                <CardTitle className="text-lg text-blue-800 flex items-center gap-2">
+                                  <DollarSign className="h-4 w-4 text-blue-600" />
+                                  Budget Summary
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-3">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-gray-700">
+                                      Accommodation (per night):
+                                    </span>
+                                    <span className="font-medium text-blue-700">
+                                      ₹
+                                      {selectedCity.hotels.length > 0
+                                        ? Math.min(
+                                            ...selectedCity.hotels.map(
+                                              (h) => h.Hotel_price
+                                            )
+                                          )
+                                        : "N/A"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-gray-700">
+                                      Average attraction cost:
+                                    </span>
+                                    <span className="font-medium text-blue-700">
+                                      ₹
+                                      {(
+                                        selectedCity.popular_destinations.reduce(
+                                          (sum, d) => sum + d.price_fare,
+                                          0
+                                        ) /
+                                        (selectedCity.popular_destinations
+                                          .length || 1)
+                                      ).toFixed(0)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-gray-700">
+                                      Estimated daily food:
+                                    </span>
+                                    <span className="font-medium text-blue-700">
+                                      ₹1,500
+                                    </span>
+                                  </div>
+                                  <Separator className="bg-blue-200" />
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-semibold text-blue-800">
+                                      Total daily cost:
+                                    </span>
+                                    <span className="font-semibold text-blue-800">
+                                      ₹{selectedCity.estimated_daily_cost}
+                                    </span>
+                                  </div>
+                                  <Separator className="bg-blue-200" />
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-semibold text-blue-800">
+                                      Total trip cost ({tripDuration} days):
+                                    </span>
+                                    <span className="font-bold text-lg text-blue-800">
+                                      ₹
+                                      {selectedCity.estimated_daily_cost *
+                                        Number.parseInt(tripDuration, 10)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        ) : (
+                          <div className="flex h-[60vh] items-center justify-center text-gray-500 p-8 border rounded-lg bg-gray-50">
+                            <div className="text-center">
+                              <MapPin className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                              <p className="text-lg">
+                                Select a destination to view your personalized
+                                itinerary
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="saved" className="p-6">
+              {savedItineraries.length === 0 ? (
+                <Alert className="bg-blue-50 border-blue-200">
+                  <div className="flex flex-col items-center text-center p-6">
+                    <BookmarkCheck className="h-12 w-12 text-blue-400 mb-4" />
+                    <AlertDescription className="text-lg text-gray-600">
+                      You don't have any saved itineraries yet. Create and save
+                      an itinerary to see it here.
+                    </AlertDescription>
+                    <Button
+                      onClick={() => setActiveTab("form")}
+                      className="mt-4 bg-blue-600 hover:bg-blue-700"
+                    >
+                      Create New Itinerary
+                    </Button>
+                  </div>
+                </Alert>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
+                  {/* Left sidebar - Saved Itineraries List */}
+                  <div className="md:col-span-1 border-r">
+                    <div className="p-4 bg-gray-50 border-b">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <BookmarkCheck className="h-4 w-4 text-blue-500" />
+                        Your Saved Trips
+                      </h3>
+                    </div>
+                    <ScrollArea className="h-[calc(100vh-300px)] md:h-auto">
+                      <div className="p-4 space-y-3">
+                        {savedItineraries.map((itinerary) => (
+                          <div
+                            key={itinerary.id}
+                            className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                              selectedSavedItinerary?.id === itinerary.id
+                                ? "border-blue-500 bg-blue-50"
+                                : "hover:border-blue-200 hover:bg-gray-50"
+                            }`}
+                            onClick={() => setSelectedSavedItinerary(itinerary)}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h4 className="font-medium text-blue-800">
+                                  {itinerary.city}
+                                </h4>
+                                <p className="text-sm text-gray-500">
+                                  Saved on {itinerary.date}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-gray-400 hover:text-red-500"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteSavedItinerary(itinerary.id);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                {itinerary.duration} days
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                {itinerary.month}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                ₹{itinerary.estimatedCost}
+                              </Badge>
                             </div>
                           </div>
                         ))}
                       </div>
-                    )}
+                    </ScrollArea>
+                  </div>
 
-                    {/* Day-by-day */}
-                    <h4 className="font-semibold mb-3">Day-by-Day Itinerary</h4>
-                    <div className="space-y-6">
-                      {dailyPlans.map((day) => (
-                        <div key={day.day} className="border rounded shadow-sm">
-                          <div className="bg-blue-600 text-white p-2 rounded-t">
-                            <h5 className="font-medium">Day {day.day}</h5>
+                  {/* Right content - Selected Saved Itinerary */}
+                  <div className="md:col-span-2 p-6">
+                    {selectedSavedItinerary ? (
+                      <div className="space-y-6">
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-start">
+                            <h2 className="text-2xl font-bold text-blue-800">
+                              {selectedSavedItinerary.city}
+                            </h2>
+                            <Button
+                              onClick={() => window.print()}
+                              variant="outline"
+                              size="sm"
+                              className="flex items-center gap-1"
+                            >
+                              <Printer className="h-4 w-4" />
+                              <span>Print</span>
+                            </Button>
                           </div>
-                          <div className="p-4">
-                            <ul className="space-y-4">
-                              {day.activities.map((act, idx) => (
-                                <li
-                                  key={idx}
-                                  className="border-b last:border-b-0 pb-3"
-                                >
-                                  <div className="flex items-start">
-                                    <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs w-20 text-center">
-                                      {act.time}
+
+                          <p className="text-gray-600 leading-relaxed">
+                            {selectedSavedItinerary.cityData.description}
+                          </p>
+
+                          <div className="flex flex-wrap gap-2">
+                            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-none">
+                              <Star className="h-3.5 w-3.5 mr-1 fill-amber-500 text-amber-500" />
+                              Rating: {selectedSavedItinerary.cityData.rating}
+                            </Badge>
+                            <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100 border-none">
+                              <Calendar className="h-3.5 w-3.5 mr-1 text-sky-500" />
+                              Best time:{" "}
+                              {selectedSavedItinerary.cityData.best_time_to_visit.join(
+                                ", "
+                              )}
+                            </Badge>
+                            <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-none">
+                              <DollarSign className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                              Est. Daily Cost: ₹
+                              {
+                                selectedSavedItinerary.cityData
+                                  .estimated_daily_cost
+                              }
+                            </Badge>
+                          </div>
+
+                          <Card className="bg-blue-50 border-blue-200">
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-md text-blue-800">
+                                Trip Details
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <p className="text-sm text-gray-500">
+                                    Travel Month
+                                  </p>
+                                  <p className="font-medium">
+                                    {selectedSavedItinerary.month}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-gray-500">
+                                    Duration
+                                  </p>
+                                  <p className="font-medium">
+                                    {selectedSavedItinerary.duration} days
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-gray-500">
+                                    Budget
+                                  </p>
+                                  <p className="font-medium">
+                                    {selectedSavedItinerary.budget}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-gray-500">
+                                    Total Cost
+                                  </p>
+                                  <p className="font-medium">
+                                    ₹{selectedSavedItinerary.estimatedCost}
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+
+                        <Separator />
+
+                        {/* Hotels */}
+                        {selectedSavedItinerary.cityData.hotels.length > 0 && (
+                          <div>
+                            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                              <Heart className="h-4 w-4 text-rose-500" />
+                              Recommended Accommodation
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {selectedSavedItinerary.cityData.hotels
+                                .slice(0, 3)
+                                .map((hotel, i) => (
+                                  <Card key={i} className="overflow-hidden">
+                                    <div className="h-24 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center">
+                                      <span className="text-white text-xl font-bold">
+                                        {hotel.Hotel_name.charAt(0)}
+                                      </span>
                                     </div>
-                                    <div className="ml-3">
-                                      <div className="font-medium">
-                                        {act.activity}
+                                    <CardContent className="p-4">
+                                      <div className="font-semibold truncate">
+                                        {hotel.Hotel_name}
                                       </div>
-                                      <div className="text-sm text-gray-600">
-                                        {act.description}
+                                      <div className="text-sm text-gray-500">
+                                        {hotel.City}
                                       </div>
-                                      {act.price && (
-                                        <div className="text-sm text-green-600 mt-1">
-                                          {act.price}
+                                      <div className="flex justify-between items-center mt-2">
+                                        <div className="flex items-center">
+                                          <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                                          <span className="ml-1 text-amber-600">
+                                            {hotel.Hotel_Rating}
+                                          </span>
                                         </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
+                                        <div className="font-medium text-blue-600">
+                                          ₹{hotel.Hotel_price}/night
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        )}
 
-                    {/* Budget summary */}
-                    <div className="mt-6 p-4 bg-green-50 rounded border border-green-200">
-                      <h4 className="font-semibold mb-2">Budget Summary</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span>Accommodation (per night):</span>
-                          <span className="font-medium">
-                            ₹
-                            {selectedCity.hotels.length > 0
-                              ? Math.min(
-                                  ...selectedCity.hotels.map(
-                                    (h) => h.Hotel_price
-                                  )
-                                )
-                              : "N/A"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Average attraction cost:</span>
-                          <span className="font-medium">
-                            ₹
-                            {(
-                              selectedCity.popular_destinations.reduce(
-                                (sum, d) => sum + d.price_fare,
-                                0
-                              ) /
-                              (selectedCity.popular_destinations.length || 1)
-                            ).toFixed(0)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Estimated daily food:</span>
-                          <span className="font-medium">₹1,500</span>
-                        </div>
-                        <div className="flex justify-between border-t pt-2">
-                          <span className="font-semibold">
-                            Total daily cost:
-                          </span>
-                          <span className="font-semibold">
-                            ₹{selectedCity.estimated_daily_cost}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-t pt-2">
-                          <span className="font-semibold">
-                            Total trip cost ({tripDuration} days):
-                          </span>
-                          <span className="font-semibold">
-                            ₹
-                            {selectedCity.estimated_daily_cost *
-                              parseInt(tripDuration, 10)}
-                          </span>
+                        <Separator />
+
+                        {/* Day-by-day */}
+                        <div>
+                          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-blue-500" />
+                            Day-by-Day Itinerary
+                          </h3>
+                          <div className="space-y-6">
+                            {savedItineraryDailyPlans.map((day) => (
+                              <Card key={day.day} className="overflow-hidden">
+                                <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-700 text-white py-3 px-4">
+                                  <CardTitle className="text-lg">
+                                    Day {day.day}
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                  <div className="divide-y">
+                                    {day.activities.map((act, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="p-4 hover:bg-gray-50 transition-colors"
+                                      >
+                                        <div className="flex items-start gap-3">
+                                          <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-medium min-w-[5rem] text-center">
+                                            {act.time}
+                                          </div>
+                                          <div>
+                                            <div className="font-medium">
+                                              {act.activity}
+                                            </div>
+                                            <div className="text-sm text-gray-600 mt-1">
+                                              {act.description}
+                                            </div>
+                                            {act.price && (
+                                              <div className="text-sm text-blue-600 mt-1 font-medium">
+                                                {act.price}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Print */}
-                    <div className="mt-6 text-right">
-                      <button
-                        onClick={() => window.print()}
-                        className="bg-gray-600 text-white py-1 px-4 rounded text-sm"
-                      >
-                        Print Itinerary
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-gray-500 p-8 border rounded">
-                    Select a destination to view your personalized itinerary
+                    ) : (
+                      <div className="flex h-[60vh] items-center justify-center text-gray-500 p-8 border rounded-lg bg-gray-50">
+                        <div className="text-center">
+                          <BookmarkCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                          <p className="text-lg">
+                            Select a saved trip to view details
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 }
