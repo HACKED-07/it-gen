@@ -40,10 +40,18 @@ type Destination = {
   price_fare: number;
 };
 
+type Hotel = {
+  name: string;
+  address: string;
+  rating: number;
+  price_per_night: number;
+};
+
 type ItineraryCity = {
   city: string;
   state?: string;
   popular_destinations: Destination[];
+  hotels: Hotel[];
   rating: number;
   description: string;
   best_time_to_visit: string[];
@@ -57,12 +65,127 @@ type ItineraryResult = {
   };
 };
 
+// Helper function to create daily plans
+const generateDailyPlans = (cityData: ItineraryCity) => {
+  const { popular_destinations, hotels } = cityData;
+
+  // Try to get the best hotel
+  const selectedHotel =
+    hotels && hotels.length > 0
+      ? hotels.sort((a, b) => b.rating - a.rating)[0]
+      : null;
+
+  // Split destinations into days (max 3 per day)
+  const destinationsPerDay = 3;
+  const days: Array<{ day: number; activities: any[] }> = [];
+
+  for (let i = 0; i < popular_destinations.length; i += destinationsPerDay) {
+    const dayNumber = days.length + 1;
+    const dailyDestinations = popular_destinations.slice(
+      i,
+      i + destinationsPerDay
+    );
+
+    // First day should include arrival and hotel check-in
+    if (dayNumber === 1) {
+      days.push({
+        day: dayNumber,
+        activities: [
+          {
+            time: "Morning",
+            activity: "Arrive in " + cityData.city,
+            description: "Welcome to " + cityData.city + "!",
+          },
+          {
+            time: "Afternoon",
+            activity: selectedHotel
+              ? `Check-in at ${selectedHotel.name}`
+              : `Check-in at your hotel`,
+            description: selectedHotel
+              ? `Get settled at ${selectedHotel.name} (${selectedHotel.rating}★) located at ${selectedHotel.address}.`
+              : "Get settled at your hotel and prepare for your adventure.",
+          },
+          ...dailyDestinations.map((dest, index) => ({
+            time: index === 0 ? "Evening" : "Night",
+            activity: dest.name,
+            description: `Visit this ${dest.interest.join(
+              ", "
+            )} attraction (${dest.google_rating.toFixed(1)}★)`,
+            price:
+              dest.price_fare > 0
+                ? `₹${dest.price_fare.toFixed(0)}`
+                : "Free entry",
+          })),
+        ],
+      });
+    }
+    // Last day should include hotel check-out and departure
+    else if (i + destinationsPerDay >= popular_destinations.length) {
+      days.push({
+        day: dayNumber,
+        activities: [
+          {
+            time: "Morning",
+            activity: selectedHotel
+              ? `Check-out from ${selectedHotel.name}`
+              : "Check-out from your hotel",
+            description: "Pack your belongings and prepare for your final day.",
+          },
+          ...dailyDestinations.map((dest, index) => ({
+            time:
+              index === 0 ? "Morning" : index === 1 ? "Afternoon" : "Evening",
+            activity: dest.name,
+            description: `Visit this ${dest.interest.join(
+              ", "
+            )} attraction (${dest.google_rating.toFixed(1)}★)`,
+            price:
+              dest.price_fare > 0
+                ? `₹${dest.price_fare.toFixed(0)}`
+                : "Free entry",
+          })),
+          {
+            time: "Night",
+            activity: "Departure from " + cityData.city,
+            description: "Farewell to " + cityData.city + "!",
+          },
+        ],
+      });
+    }
+    // Regular days
+    else {
+      days.push({
+        day: dayNumber,
+        activities: dailyDestinations.map((dest, index) => ({
+          time: index === 0 ? "Morning" : index === 1 ? "Afternoon" : "Evening",
+          activity: dest.name,
+          description: `Visit this ${dest.interest.join(
+            ", "
+          )} attraction (${dest.google_rating.toFixed(1)}★)`,
+          price:
+            dest.price_fare > 0
+              ? `₹${dest.price_fare.toFixed(0)}`
+              : "Free entry",
+        })),
+      });
+    }
+  }
+
+  return days;
+};
+
 export default function ItineraryGenerator() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [travelMonth, setTravelMonth] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ItineraryResult | null>(null);
   const [error, setError] = useState("");
+  const [tripDuration, setTripDuration] = useState("3"); // Default trip duration in days
+  const [selectedCityIndex, setSelectedCityIndex] = useState<number | null>(
+    null
+  );
+  const [selectedInterestKey, setSelectedInterestKey] = useState<string | null>(
+    null
+  );
 
   const handleInterestToggle = (interest: string) => {
     setSelectedInterests((prev) =>
@@ -77,6 +200,8 @@ export default function ItineraryGenerator() {
     setIsLoading(true);
     setError("");
     setResult(null);
+    setSelectedCityIndex(null);
+    setSelectedInterestKey(null);
 
     try {
       console.log("Submitting form with:", { selectedInterests, travelMonth });
@@ -89,6 +214,13 @@ export default function ItineraryGenerator() {
 
       if (result.success) {
         setResult(result);
+
+        // Select the first interest and city by default
+        if (result.itinerary && Object.keys(result.itinerary).length > 0) {
+          const firstInterest = Object.keys(result.itinerary)[0];
+          setSelectedInterestKey(firstInterest);
+          setSelectedCityIndex(0);
+        }
       } else {
         setError(result.message || "Failed to create itinerary");
       }
@@ -99,6 +231,17 @@ export default function ItineraryGenerator() {
       setIsLoading(false);
     }
   };
+
+  // Get the currently selected city data
+  const selectedCity =
+    selectedInterestKey &&
+    selectedCityIndex !== null &&
+    result?.itinerary?.[selectedInterestKey]
+      ? result.itinerary[selectedInterestKey][selectedCityIndex]
+      : null;
+
+  // Generate daily plans for the selected city
+  const dailyPlans = selectedCity ? generateDailyPlans(selectedCity) : [];
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -128,23 +271,47 @@ export default function ItineraryGenerator() {
           )}
         </div>
 
-        <div>
-          <h2 className="text-lg font-semibold mb-3">
-            When Are You Traveling?
-          </h2>
-          <select
-            value={travelMonth}
-            onChange={(e) => setTravelMonth(e.target.value)}
-            className="w-full p-2 border rounded"
-            required
-          >
-            <option value="">Select a month</option>
-            {MONTHS.map((month) => (
-              <option key={month} value={month}>
-                {month}
-              </option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h2 className="text-lg font-semibold mb-3">
+              When Are You Traveling?
+            </h2>
+            <select
+              value={travelMonth}
+              onChange={(e) => setTravelMonth(e.target.value)}
+              className="w-full p-2 border rounded"
+              required
+            >
+              <option value="">Select a month</option>
+              {MONTHS.map((month) => (
+                <option key={month} value={month}>
+                  {month}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold mb-3">Trip Duration (Days)</h2>
+            <input
+              type="number"
+              min="1"
+              max="14"
+              value={tripDuration}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "") {
+                  setTripDuration(""); // Keep it as an empty string if the input is cleared
+                } else {
+                  const parsedValue = parseInt(value);
+                  if (!isNaN(parsedValue)) {
+                    setTripDuration(parsedValue.toString());
+                  }
+                }
+              }}
+              className="w-full p-2 border rounded"
+            />
+          </div>
         </div>
 
         <button
@@ -172,71 +339,163 @@ export default function ItineraryGenerator() {
               interests or travel month.
             </p>
           ) : (
-            Object.entries(result.itinerary).map(([interest, cities]) => (
-              <div key={interest} className="mb-8">
-                <h3 className="text-lg font-semibold mb-3 bg-blue-50 p-2 rounded">
-                  {interest}
-                </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Left sidebar - Interest categories and cities */}
+              <div className="md:col-span-1 border rounded p-4 bg-gray-50">
+                <h3 className="font-semibold mb-3">Suggested Destinations</h3>
 
-                <div className="space-y-4">
-                  {cities.map((city, index) => (
-                    <div key={index} className="border rounded p-4 shadow-sm">
-                      <div className="flex justify-between items-start">
-                        <h4 className="text-md font-semibold">
-                          {city.city}
-                          {city.state ? `, ${city.state}` : ""}
-                        </h4>
-                        <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">
-                          Rating: {city.rating}
+                {Object.entries(result.itinerary).map(([interest, cities]) => (
+                  <div key={interest} className="mb-4">
+                    <h4 className="text-sm font-medium bg-blue-50 p-1 rounded">
+                      {interest}
+                    </h4>
+
+                    <ul className="mt-2 space-y-1">
+                      {cities.map((city, index) => (
+                        <li key={index}>
+                          <button
+                            className={`text-left w-full p-1 text-sm rounded hover:bg-blue-100 ${
+                              selectedInterestKey === interest &&
+                              selectedCityIndex === index
+                                ? "bg-blue-100 font-medium"
+                                : ""
+                            }`}
+                            onClick={() => {
+                              setSelectedInterestKey(interest);
+                              setSelectedCityIndex(index);
+                            }}
+                          >
+                            {city.city}
+                            {city.state ? `, ${city.state}` : ""}
+                            <span className="text-yellow-600 ml-1 text-xs">
+                              ({city.rating}★)
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right content - Selected city itinerary */}
+              <div className="md:col-span-2">
+                {selectedCity ? (
+                  <div>
+                    <div className="border-b pb-3 mb-4">
+                      <h3 className="text-xl font-semibold">
+                        {selectedCity.city}
+                        {selectedCity.state ? `, ${selectedCity.state}` : ""}
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {selectedCity.description}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">
+                          Rating: {selectedCity.rating}★
+                        </span>
+                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                          Best time:{" "}
+                          {selectedCity.best_time_to_visit.join(", ")}
                         </span>
                       </div>
-
-                      <p className="text-sm text-gray-600 mt-2">
-                        {city.description}
-                      </p>
-
-                      <div className="mt-2 mb-3 text-xs text-gray-500">
-                        <span className="font-medium">Best time to visit:</span>{" "}
-                        {city.best_time_to_visit.join(", ")}
-                      </div>
-
-                      <h5 className="font-medium mt-4 mb-2">
-                        Top Places to Visit:
-                      </h5>
-                      <ul className="text-sm space-y-2">
-                        {city.popular_destinations.map((dest, i) => (
-                          <li
-                            key={i}
-                            className="flex justify-between p-1 hover:bg-gray-50"
-                          >
-                            <span>{dest.name}</span>
-                            <div>
-                              <span className="text-yellow-600 mr-2">
-                                ★ {dest.google_rating.toFixed(1)}
-                              </span>
-                              {dest.price_fare > 0 && (
-                                <span className="text-green-600">
-                                  ₹{dest.price_fare.toFixed(0)}
-                                </span>
-                              )}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
 
-      {/* Debug info - remove in production */}
-      {result && (
-        <div className="mt-4 p-2 border-t text-xs text-gray-400">
-          Found {result.itinerary ? Object.keys(result.itinerary).length : 0}{" "}
-          interest categories with matching destinations
+                    {/* Hotel information */}
+                    {selectedCity.hotels && selectedCity.hotels.length > 0 && (
+                      <div className="mb-6 p-4 bg-gray-50 rounded">
+                        <h4 className="font-semibold mb-2">
+                          Recommended Accommodation
+                        </h4>
+                        <div className="space-y-2">
+                          {selectedCity.hotels
+                            .slice(0, 3)
+                            .map((hotel, index) => (
+                              <div
+                                key={index}
+                                className="flex justify-between border-b last:border-b-0 pb-2"
+                              >
+                                <div>
+                                  <div className="font-medium">
+                                    {hotel.name}
+                                  </div>
+                                  <div className="text-xs text-gray-600">
+                                    {hotel.address}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-yellow-600">
+                                    {hotel.rating}★
+                                  </div>
+                                  <div className="text-sm font-medium">
+                                    ₹{hotel.price_per_night}/night
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Day-by-day itinerary */}
+                    <h4 className="font-semibold mb-3">Day-by-Day Itinerary</h4>
+                    <div className="space-y-6">
+                      {dailyPlans.map((day) => (
+                        <div key={day.day} className="border rounded shadow-sm">
+                          <div className="bg-blue-600 text-white p-2 rounded-t">
+                            <h5 className="font-medium">Day {day.day}</h5>
+                          </div>
+                          <div className="p-4">
+                            <ul className="space-y-4">
+                              {day.activities.map((activity, index) => (
+                                <li
+                                  key={index}
+                                  className="border-b last:border-b-0 pb-3"
+                                >
+                                  <div className="flex items-start">
+                                    <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs w-20 text-center">
+                                      {activity.time}
+                                    </div>
+                                    <div className="ml-3">
+                                      <div className="font-medium">
+                                        {activity.activity}
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        {activity.description}
+                                      </div>
+                                      {activity.price && (
+                                        <div className="text-sm text-green-600 mt-1">
+                                          {activity.price}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Print button */}
+                    <div className="mt-6 text-right">
+                      <button
+                        onClick={() => window.print()}
+                        className="bg-gray-600 text-white py-1 px-4 rounded text-sm"
+                      >
+                        Print Itinerary
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-gray-500 p-8 border rounded">
+                    Select a destination to view your personalized itinerary
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

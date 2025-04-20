@@ -19,6 +19,12 @@ type ItineraryCity = {
     interest: string[];
     price_fare: number;
   }[];
+  hotels: {
+    name: string;
+    address: string;
+    rating: number;
+    price_per_night: number;
+  }[];
   rating: number;
   description: string;
   best_time_to_visit: string[];
@@ -57,7 +63,7 @@ export async function createItinerary(formData: {
 
     console.log("Successfully initialized Supabase client");
 
-    // 🔹 Step 1: Direct query to get cities matching the travel month
+    // 1. Get cities that match the month
     const { data: matchingCities, error: citiesError } = await supabase
       .from("city_info")
       .select("*")
@@ -106,6 +112,37 @@ export async function createItinerary(formData: {
         .slice(0, 5)
         .join(", ")}${cityNames.length > 5 ? "..." : ""}`
     );
+
+    // 2. Get hotel details for those cities - using proper capitalization to match database
+    const { data: hotels, error: hotelError } = await supabase
+      .from("Hotels")
+      .select("*")
+      .in(
+        "City",
+        cityNames.map((name) => name.charAt(0).toUpperCase() + name.slice(1))
+      );
+
+    if (hotelError) {
+      console.error("Error fetching hotels:", hotelError);
+      // Continue with the process even if hotel data retrieval fails
+      console.log("Continuing without hotel data");
+    }
+
+    console.log("Hotels found:", hotels?.length || 0);
+
+    // Organize hotels by city for easy access
+    const hotelsByCity: { [city: string]: any[] } = {};
+    if (hotels && hotels.length > 0) {
+      hotels.forEach((hotel) => {
+        if (!hotel.City) return;
+
+        const cityLower = hotel.City.toLowerCase();
+        if (!hotelsByCity[cityLower]) {
+          hotelsByCity[cityLower] = [];
+        }
+        hotelsByCity[cityLower].push(hotel);
+      });
+    }
 
     const itinerary: { [interest: string]: ItineraryCity[] } = {};
 
@@ -162,6 +199,9 @@ export async function createItinerary(formData: {
           return [interest];
         };
 
+        // Get hotels for this city
+        const cityHotels = hotelsByCity[cityLower] || [];
+
         citiesForInterest.push({
           city: cityInfo.city,
           state: places[0]?.state,
@@ -171,6 +211,12 @@ export async function createItinerary(formData: {
             google_rating: Number(place.google_rating) || 0,
             interest: parseInterest(place.interest),
             price_fare: Number(place.price_fare) || 0,
+          })),
+          hotels: cityHotels.map((hotel) => ({
+            name: hotel.Name || "Unknown Hotel",
+            address: hotel.Address || "",
+            rating: Number(hotel.Rating) || 0,
+            price_per_night: Number(hotel.Price_per_night) || 0,
           })),
           rating: Number(cityInfo.rating) || 0,
           description: cityInfo.description || "",
