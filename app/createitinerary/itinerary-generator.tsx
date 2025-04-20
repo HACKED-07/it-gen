@@ -3,13 +3,23 @@
 import type React from "react";
 
 import { useEffect, useState } from "react";
+// Import your new server actions
+import {
+  saveItineraryAction,
+  fetchSavedItinerariesAction,
+  deleteSavedItineraryAction,
+  SavedItineraryEntry, // Import the type
+} from "@/actions/savedItineraryActions"; // Assuming you saved them here
+
+// You still need createItinerary for generating the *new* itinerary
 import { createItinerary } from "@/actions/createItinerary";
+
 import {
   Bookmark,
   BookmarkCheck,
   Calendar,
   Clock,
-  DollarSign,
+  IndianRupeeIcon,
   Heart,
   MapPin,
   Printer,
@@ -32,6 +42,8 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
+import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supbase/client";
 
 // Define interest categories based on the data
 const INTEREST_CATEGORIES = [
@@ -63,6 +75,7 @@ const MONTHS = [
 ];
 
 // Define better types for the itinerary result that match the server action
+// These can stay as they are used for the generated result
 type Destination = {
   name: string;
   google_rating: number;
@@ -96,20 +109,14 @@ type ItineraryResult = {
   };
 };
 
-type SavedItinerary = {
-  id: string;
-  date: string;
-  city: string;
-  interests: string[];
-  month: string;
-  duration: string;
-  budget: string;
-  estimatedCost: number;
-  cityData: ItineraryCity;
-};
+// Use the imported type for SavedItinerary
+// type SavedItinerary = { ... } // REMOVE OR COMMENT THIS OUT
+type SavedItinerary = SavedItineraryEntry;
 
+// Helper function to create daily plans (This function is fine)
 // Helper function to create daily plans
-const generateDailyPlans = (cityData: ItineraryCity) => {
+// **CHANGE:** Add tripDuration parameter
+const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => {
   const { popular_destinations, hotels } = cityData;
 
   // Try to get the best hotel
@@ -122,84 +129,45 @@ const generateDailyPlans = (cityData: ItineraryCity) => {
   const destinationsPerDay = 3;
   const days: Array<{ day: number; activities: any[] }> = [];
 
-  for (let i = 0; i < popular_destinations.length; i += destinationsPerDay) {
-    const dayNumber = days.length + 1;
+  // Calculate total number of days needed based on destinations
+  const totalDaysNeeded = Math.ceil(
+    popular_destinations.length / destinationsPerDay
+  );
+  // Use the greater of the user's requested duration or the minimum days needed for destinations
+  // **CHANGE:** Use the passed-in tripDuration parameter
+  const actualTripDuration = Math.max(tripDuration, totalDaysNeeded);
+
+  for (let dayIndex = 0; dayIndex < actualTripDuration; dayIndex++) {
+    const dayNumber = dayIndex + 1;
+    const startDestIndex = dayIndex * destinationsPerDay;
+    // Ensure we don't go out of bounds for popular_destinations
     const dailyDestinations = popular_destinations.slice(
-      i,
-      i + destinationsPerDay
+      startDestIndex,
+      startDestIndex + destinationsPerDay
     );
 
-    // First day should include arrival and hotel check-in
+    const dailyActivities = [];
+
+    // First day should include arrival and hotel check-in (Only if it's the actual first day of the trip)
     if (dayNumber === 1) {
-      days.push({
-        day: dayNumber,
-        activities: [
-          {
-            time: "Morning",
-            activity: "Arrive in " + cityData.city,
-            description: "Welcome to " + cityData.city + "!",
-          },
-          {
-            time: "Afternoon",
-            activity: selectedHotel
-              ? `Check-in at ${selectedHotel.Hotel_name}`
-              : `Check-in at your hotel`,
-            description: selectedHotel
-              ? `Get settled at ${selectedHotel.Hotel_name} (${selectedHotel.Hotel_Rating}★) located at ${selectedHotel.City}.`
-              : "Get settled at your hotel and prepare for your adventure.",
-          },
-          ...dailyDestinations.map((dest, index) => ({
-            time: index === 0 ? "Evening" : "Night",
-            activity: dest.name,
-            description: `Visit this ${dest.interest.join(
-              ", "
-            )} attraction (${dest.google_rating.toFixed(1)}★)`,
-            price:
-              dest.price_fare > 0
-                ? `₹${dest.price_fare.toFixed(0)}`
-                : "Free entry",
-          })),
-        ],
+      dailyActivities.push({
+        time: "Morning",
+        activity: "Arrive in " + cityData.city,
+        description: "Welcome to " + cityData.city + "!",
       });
-    }
-    // Last day should include hotel check-out and departure
-    else if (i + destinationsPerDay >= popular_destinations.length) {
-      days.push({
-        day: dayNumber,
-        activities: [
-          {
-            time: "Morning",
-            activity: selectedHotel
-              ? `Check-out from ${selectedHotel.Hotel_name}`
-              : "Check-out from your hotel",
-            description: "Pack your belongings and prepare for your final day.",
-          },
-          ...dailyDestinations.map((dest, index) => ({
-            time:
-              index === 0 ? "Morning" : index === 1 ? "Afternoon" : "Evening",
-            activity: dest.name,
-            description: `Visit this ${dest.interest.join(
-              ", "
-            )} attraction (${dest.google_rating.toFixed(1)}★)`,
-            price:
-              dest.price_fare > 0
-                ? `₹${dest.price_fare.toFixed(0)}`
-                : "Free entry",
-          })),
-          {
-            time: "Night",
-            activity: "Departure from " + cityData.city,
-            description: "Farewell to " + cityData.city + "!",
-          },
-        ],
+      dailyActivities.push({
+        time: "Afternoon",
+        activity: selectedHotel
+          ? `Check-in at ${selectedHotel.Hotel_name}`
+          : `Check-in at your hotel`,
+        description: selectedHotel
+          ? `Get settled at ${selectedHotel.Hotel_name} (${selectedHotel.Hotel_Rating}★) located in ${selectedHotel.City}.`
+          : "Get settled at your hotel and prepare for your adventure.",
       });
-    }
-    // Regular days
-    else {
-      days.push({
-        day: dayNumber,
-        activities: dailyDestinations.map((dest, index) => ({
-          time: index === 0 ? "Morning" : index === 1 ? "Afternoon" : "Evening",
+      // Add destinations for the first day
+      dailyDestinations.forEach((dest, index) => {
+        dailyActivities.push({
+          time: index === 0 ? "Evening" : "Night", // Adjust time based on index after check-in
           activity: dest.name,
           description: `Visit this ${dest.interest.join(
             ", "
@@ -208,15 +176,79 @@ const generateDailyPlans = (cityData: ItineraryCity) => {
             dest.price_fare > 0
               ? `₹${dest.price_fare.toFixed(0)}`
               : "Free entry",
-        })),
+        });
       });
     }
+    // Last day should include hotel check-out and departure (Only if it's the actual last day)
+    else if (dayNumber === actualTripDuration) {
+      dailyActivities.push({
+        time: "Morning", // Check-out typically morning
+        activity: selectedHotel
+          ? `Check-out from ${selectedHotel.Hotel_name}`
+          : "Check-out from your hotel",
+        description: "Pack your belongings and prepare for your final day.",
+      });
+      // Add destinations for the last day
+      dailyDestinations.forEach((dest, index) => {
+        dailyActivities.push({
+          time:
+            index === 0
+              ? "Late Morning"
+              : index === 1
+              ? "Afternoon"
+              : "Evening", // Adjust time based on index before departure
+          activity: dest.name,
+          description: `Visit this ${dest.interest.join(
+            ", "
+          )} attraction (${dest.google_rating.toFixed(1)}★)`,
+          price:
+            dest.price_fare > 0
+              ? `₹${dest.price_fare.toFixed(0)}`
+              : "Free entry",
+        });
+      });
+      dailyActivities.push({
+        time: "Night",
+        activity: "Departure from " + cityData.city,
+        description: "Farewell to " + cityData.city + "!",
+      });
+    }
+    // Regular days
+    else {
+      dailyDestinations.forEach((dest, index) => {
+        dailyActivities.push({
+          time: index === 0 ? "Morning" : index === 1 ? "Afternoon" : "Evening", // Adjust time based on index
+          activity: dest.name,
+          description: `Visit this ${dest.interest.join(
+            ", "
+          )} attraction (${dest.google_rating.toFixed(1)}★)`,
+          price:
+            dest.price_fare > 0
+              ? `₹${dest.price_fare.toFixed(0)}`
+              : "Free entry",
+        });
+      });
+    }
+
+    // If a day has no destinations (e.g., requested duration is longer than destinations allow, and it's not the arrival/departure day)
+    // or if destinations are fewer than requested and it's an intermediate day
+    if (dailyActivities.length === 0) {
+      dailyActivities.push({
+        time: "Day",
+        activity: "Explore " + cityData.city + " at your leisure",
+        description:
+          "Enjoy free time to discover local gems, revisit favorites, or relax.",
+      });
+    }
+
+    days.push({ day: dayNumber, activities: dailyActivities });
   }
 
   return days;
 };
 
 export function ItineraryGenerator() {
+  const [loading, setLoading] = useState(false);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [travelMonth, setTravelMonth] = useState("");
   const [budget, setBudget] = useState<string>("");
@@ -232,28 +264,55 @@ export function ItineraryGenerator() {
   );
   const [showCustomBudget, setShowCustomBudget] = useState(false);
   const [activeTab, setActiveTab] = useState("form");
-  const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>(
-    []
-  );
+  // Change type to SavedItineraryEntry[]
+  const [savedItineraries, setSavedItineraries] = useState<
+    SavedItineraryEntry[]
+  >([]);
+  // Change type to SavedItineraryEntry | null
   const [selectedSavedItinerary, setSelectedSavedItinerary] =
-    useState<SavedItinerary | null>(null);
+    useState<SavedItineraryEntry | null>(null);
 
-  // Load saved itineraries from localStorage on component mount
+  // Add loading state for saved itineraries
+  const [isSavedLoading, setIsSavedLoading] = useState(false);
+
+  // Load saved itineraries from database on component mount
   useEffect(() => {
-    const savedData = localStorage.getItem("savedItineraries");
-    if (savedData) {
-      try {
-        setSavedItineraries(JSON.parse(savedData));
-      } catch (e) {
-        console.error("Error loading saved itineraries:", e);
+    // Remove localStorage loading
+    // const savedData = localStorage.getItem("savedItineraries");
+    // if (savedData) {
+    //   try {
+    //     setSavedItineraries(JSON.parse(savedData));
+    //   } catch (e) {
+    //     console.error("Error loading saved itineraries:", e);
+    //   }
+    // }
+
+    // **NEW: Fetch from database**
+    const fetchItineraries = async () => {
+      setIsSavedLoading(true); // Set loading state
+      const response = await fetchSavedItinerariesAction();
+      if (response.success && response.data) {
+        setSavedItineraries(response.data);
+      } else {
+        // Handle fetch error if necessary (e.g., show a toast)
+        console.error("Failed to fetch saved itineraries:", response.message);
+        toast({
+          title: "Error loading saved trips",
+          description: response.message || "Could not load your saved trips.",
+          variant: "destructive",
+        });
+        setSavedItineraries([]); // Ensure state is empty on failure
       }
-    }
-  }, []);
+      setIsSavedLoading(false); // Clear loading state
+    };
 
-  // Save itineraries to localStorage when they change
-  useEffect(() => {
-    localStorage.setItem("savedItineraries", JSON.stringify(savedItineraries));
-  }, [savedItineraries]);
+    fetchItineraries();
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Remove localStorage saving
+  // useEffect(() => {
+  //   localStorage.setItem("savedItineraries", JSON.stringify(savedItineraries));
+  // }, [savedItineraries]);
 
   const handleInterestToggle = (interest: string) => {
     setSelectedInterests((prev) =>
@@ -287,18 +346,23 @@ export function ItineraryGenerator() {
           const firstInterest = Object.keys(response.itinerary)[0];
           setSelectedInterestKey(firstInterest);
           setSelectedCityIndex(0);
+        } else {
+          // If no itinerary returned but success is true (e.g., no cities found)
+          setActiveTab("results"); // Still go to results tab to show the empty state
         }
       } else {
         setError(response.message || "Failed to create itinerary");
       }
-    } catch {
-      setError("An unexpected error occurred");
+    } catch (err) {
+      // Catch any unhandled exceptions
+      console.error("Submit failed:", err);
+      setError("An unexpected error occurred: " + (err as Error).message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Get the currently selected city data
+  // Get the currently selected city data from generated results
   const selectedCity =
     selectedInterestKey &&
     selectedCityIndex !== null &&
@@ -306,48 +370,146 @@ export function ItineraryGenerator() {
       ? result.itinerary[selectedInterestKey][selectedCityIndex]
       : null;
 
-  // Generate daily plans for the selected city
-  const dailyPlans = selectedCity ? generateDailyPlans(selectedCity) : [];
-
-  // Generate daily plans for the selected saved itinerary
-  const savedItineraryDailyPlans = selectedSavedItinerary
-    ? generateDailyPlans(selectedSavedItinerary.cityData)
+  // Generate daily plans for the selected city from results
+  // **CHANGE:** Pass tripDuration state (parsed to number)
+  const dailyPlans = selectedCity
+    ? generateDailyPlans(selectedCity, Number.parseInt(tripDuration, 10))
     : [];
 
+  // Generate daily plans for the selected saved itinerary
+  // **CHANGE:** Pass the duration from the saved itinerary (parsed to number)
+  const savedItineraryDailyPlans = selectedSavedItinerary
+    ? generateDailyPlans(
+        selectedSavedItinerary.cityData,
+        Number.parseInt(selectedSavedItinerary.duration, 10)
+      )
+    : [];
+
+  // Modify generateDailyPlans to accept duration
+  // const generateDailyPlans = (cityData: ItineraryCity, tripDuration: number) => { ... }
+
   // Save the current itinerary
-  const saveItinerary = () => {
-    if (!selectedCity || !selectedInterestKey) return;
+  const saveItinerary = async () => {
+    // Make async
+    if (
+      !selectedCity ||
+      !selectedInterestKey ||
+      !tripDuration ||
+      !travelMonth
+    ) {
+      toast({
+        title: "Cannot Save",
+        description: "Please generate an itinerary first.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const newSavedItinerary: SavedItinerary = {
-      id: Date.now().toString(),
+      id: Date.now().toString(), // Client-generated ID (timestamp)
       date: new Date().toLocaleDateString(),
       city: selectedCity.city,
+      // Note: Currently saving only the *first* interest key from the generated result
+      // If you want to save all interests used in the *form*, you'd need to access `selectedInterests`
       interests: [selectedInterestKey],
       month: travelMonth,
-      duration: tripDuration,
+      duration: tripDuration, // Use the state value
       budget: budget || "No limit",
       estimatedCost:
-        selectedCity.estimated_daily_cost * Number.parseInt(tripDuration, 10),
+        selectedCity.estimated_daily_cost * Number.parseInt(tripDuration, 10), // Use the state value
       cityData: selectedCity,
     };
 
-    setSavedItineraries((prev) => [newSavedItinerary, ...prev]);
-    toast({
-      title: "Itinerary Saved",
-      description: `Your trip to ${selectedCity.city} has been saved successfully.`,
-    });
+    // **NEW: Call the server action to save**
+    const response = await saveItineraryAction(newSavedItinerary);
+
+    if (response.success) {
+      // **NEW: Add the new itinerary to local state *after* successful save**
+      // It's good practice to refetch, but for responsiveness, optimistic update is okay,
+      // just handle potential sync issues if needed. For simplicity, let's re-fetch.
+      // setSavedItineraries((prev) => [newSavedItinerary, ...prev]); // Old localStorage logic
+
+      // **NEW: Re-fetch saved itineraries to ensure sync with DB**
+      setIsSavedLoading(true);
+      const fetchResponse = await fetchSavedItinerariesAction();
+      if (fetchResponse.success && fetchResponse.data) {
+        setSavedItineraries(fetchResponse.data);
+      } else {
+        console.error(
+          "Failed to re-fetch saved itineraries after save:",
+          fetchResponse.message
+        );
+        toast({
+          title: "Save Successful, but Load Failed",
+          description:
+            fetchResponse.message || "Could not refresh saved trips list.",
+          variant: "destructive",
+        });
+        // Optionally keep the optimistic update here if re-fetch fails
+        // setSavedItineraries((prev) => [newSavedItinerary, ...prev]);
+      }
+      setIsSavedLoading(false);
+
+      toast({
+        title: "Itinerary Saved",
+        description:
+          response.message ||
+          `Your trip to ${selectedCity.city} has been saved successfully.`,
+        variant: "default",
+      });
+    } else {
+      // **NEW: Handle save failure**
+      toast({
+        title: "Save Failed",
+        description: response.message || "Could not save your itinerary.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Delete a saved itinerary
-  const deleteSavedItinerary = (id: string) => {
-    setSavedItineraries((prev) => prev.filter((item) => item.id !== id));
-    if (selectedSavedItinerary?.id === id) {
-      setSelectedSavedItinerary(null);
+  const deleteSavedItinerary = async (id: string) => {
+    // Make async
+    // **NEW: Call the server action to delete**
+    const response = await deleteSavedItineraryAction(id);
+
+    if (response.success) {
+      // **NEW: Update local state *after* successful deletion**
+      setSavedItineraries((prev) => prev.filter((item) => item.id !== id));
+      if (selectedSavedItinerary?.id === id) {
+        setSelectedSavedItinerary(null);
+      }
+      toast({
+        title: "Itinerary Deleted",
+        description:
+          response.message || "The saved itinerary has been removed.",
+        variant: "default",
+      });
+    } else {
+      // **NEW: Handle deletion failure**
+      toast({
+        title: "Deletion Failed",
+        description:
+          response.message || "Could not delete the saved itinerary.",
+        variant: "destructive",
+      });
     }
-    toast({
-      title: "Itinerary Deleted",
-      description: "The saved itinerary has been removed.",
-    });
+  };
+
+  const handleLogout = async () => {
+    setLoading(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signOut();
+    setLoading(false);
+
+    if (error) {
+      console.error("Error logging out:", error);
+      // Optionally display an error message to the user
+      alert("Logout failed. Please try again.");
+    } else {
+      // Redirect to the login page after successful logout
+      redirect("/login"); // Adjust '/login' to your actual login route
+    }
   };
 
   return (
@@ -473,7 +635,7 @@ export function ItineraryGenerator() {
 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5 text-blue-500" />
+                    <IndianRupeeIcon className="h-5 w-5 text-blue-500" />
                     <h2 className="text-xl font-semibold">Daily Budget</h2>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
@@ -679,8 +841,8 @@ export function ItineraryGenerator() {
                                             variant="outline"
                                             className="bg-blue-50 text-blue-700 border-blue-200"
                                           >
-                                            <DollarSign className="h-3 w-3 mr-1 text-blue-500" />
-                                            ₹{city.estimated_daily_cost}/day
+                                            <IndianRupeeIcon className="h-3 w-3 mr-1 text-blue-500" />
+                                            {city.estimated_daily_cost}/day
                                           </Badge>
                                         </div>
                                       </button>
@@ -711,7 +873,14 @@ export function ItineraryGenerator() {
                                     variant="outline"
                                     size="sm"
                                     className="flex items-center gap-1"
+                                    disabled={isLoading || isSavedLoading} // Disable while generating or saving
                                   >
+                                    {/* Change icon based on if it's already saved - Optional enhancement */}
+                                    {/* {savedItineraries.some(si => si.cityData?.city === selectedCity?.city && si.interests.includes(selectedInterestKey || '')) ? (
+                                        <BookmarkCheck className="h-4 w-4 text-green-500" />
+                                     ) : (
+                                        <Bookmark className="h-4 w-4" />
+                                     )} */}
                                     <Bookmark className="h-4 w-4" />
                                     <span>Save</span>
                                   </Button>
@@ -742,7 +911,7 @@ export function ItineraryGenerator() {
                                   {selectedCity.best_time_to_visit.join(", ")}
                                 </Badge>
                                 <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-none">
-                                  <DollarSign className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                                  <IndianRupeeIcon className="h-3.5 w-3.5 mr-1 text-blue-500" />
                                   Est. Daily Cost: ₹
                                   {selectedCity.estimated_daily_cost}
                                 </Badge>
@@ -799,7 +968,7 @@ export function ItineraryGenerator() {
                             <div>
                               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                                 <Calendar className="h-4 w-4 text-blue-500" />
-                                Day-by-Day Itinerary
+                                Day-by-Day Itinerary ({tripDuration} days)
                               </h3>
                               <div className="space-y-6">
                                 {dailyPlans.map((day) => (
@@ -850,7 +1019,7 @@ export function ItineraryGenerator() {
                             <Card className="bg-blue-50 border-blue-200">
                               <CardHeader className="pb-2">
                                 <CardTitle className="text-lg text-blue-800 flex items-center gap-2">
-                                  <DollarSign className="h-4 w-4 text-blue-600" />
+                                  <IndianRupeeIcon className="h-4 w-4 text-blue-600" />
                                   Budget Summary
                                 </CardTitle>
                               </CardHeader>
@@ -858,22 +1027,30 @@ export function ItineraryGenerator() {
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-center">
                                     <span className="text-gray-700">
-                                      Accommodation (per night):
+                                      Accommodation (per night, avg best rated):
                                     </span>
                                     <span className="font-medium text-blue-700">
                                       ₹
                                       {selectedCity.hotels.length > 0
-                                        ? Math.min(
-                                            ...selectedCity.hotels.map(
-                                              (h) => h.Hotel_price
+                                        ? // Calculate avg price of top 3 hotels for estimation
+                                          (
+                                            selectedCity.hotels
+                                              .slice(0, 3)
+                                              .reduce(
+                                                (sum, h) => sum + h.Hotel_price,
+                                                0
+                                              ) /
+                                            Math.min(
+                                              selectedCity.hotels.length,
+                                              3
                                             )
-                                          )
+                                          ).toFixed(0)
                                         : "N/A"}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-gray-700">
-                                      Average attraction cost:
+                                      Average attraction entry:
                                     </span>
                                     <span className="font-medium text-blue-700">
                                       ₹
@@ -889,7 +1066,7 @@ export function ItineraryGenerator() {
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-gray-700">
-                                      Estimated daily food:
+                                      Estimated daily food/transport:
                                     </span>
                                     <span className="font-medium text-blue-700">
                                       ₹1,500
@@ -898,7 +1075,7 @@ export function ItineraryGenerator() {
                                   <Separator className="bg-blue-200" />
                                   <div className="flex justify-between items-center">
                                     <span className="font-semibold text-blue-800">
-                                      Total daily cost:
+                                      Total estimated daily cost:
                                     </span>
                                     <span className="font-semibold text-blue-800">
                                       ₹{selectedCity.estimated_daily_cost}
@@ -907,7 +1084,8 @@ export function ItineraryGenerator() {
                                   <Separator className="bg-blue-200" />
                                   <div className="flex justify-between items-center">
                                     <span className="font-semibold text-blue-800">
-                                      Total trip cost ({tripDuration} days):
+                                      Total estimated trip cost ({tripDuration}{" "}
+                                      days):
                                     </span>
                                     <span className="font-bold text-lg text-blue-800">
                                       ₹
@@ -924,8 +1102,8 @@ export function ItineraryGenerator() {
                             <div className="text-center">
                               <MapPin className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                               <p className="text-lg">
-                                Select a destination to view your personalized
-                                itinerary
+                                Select a destination from the left to view your
+                                personalized itinerary
                               </p>
                             </div>
                           </div>
@@ -938,7 +1116,14 @@ export function ItineraryGenerator() {
             </TabsContent>
 
             <TabsContent value="saved" className="p-6">
-              {savedItineraries.length === 0 ? (
+              {isSavedLoading ? (
+                <div className="flex h-[60vh] items-center justify-center text-gray-500 p-8 border rounded-lg bg-gray-50">
+                  <div className="text-center">
+                    <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p className="text-lg">Loading saved trips...</p>
+                  </div>
+                </div>
+              ) : savedItineraries.length === 0 ? (
                 <Alert className="bg-blue-50 border-blue-200">
                   <div className="flex flex-col items-center text-center p-6">
                     <BookmarkCheck className="h-12 w-12 text-blue-400 mb-4" />
@@ -990,7 +1175,7 @@ export function ItineraryGenerator() {
                                 size="icon"
                                 className="h-8 w-8 text-gray-400 hover:text-red-500"
                                 onClick={(e) => {
-                                  e.stopPropagation();
+                                  e.stopPropagation(); // Prevent selecting the itinerary when deleting
                                   deleteSavedItinerary(itinerary.id);
                                 }}
                               >
@@ -1031,6 +1216,9 @@ export function ItineraryGenerator() {
                           <div className="flex justify-between items-start">
                             <h2 className="text-2xl font-bold text-blue-800">
                               {selectedSavedItinerary.city}
+                              {selectedSavedItinerary.cityData?.state // Access state from cityData
+                                ? `, ${selectedSavedItinerary.cityData.state}`
+                                : ""}
                             </h2>
                             <Button
                               onClick={() => window.print()}
@@ -1044,31 +1232,33 @@ export function ItineraryGenerator() {
                           </div>
 
                           <p className="text-gray-600 leading-relaxed">
-                            {selectedSavedItinerary.cityData.description}
+                            {selectedSavedItinerary.cityData?.description ||
+                              "No description available."}
                           </p>
 
                           <div className="flex flex-wrap gap-2">
                             <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-none">
                               <Star className="h-3.5 w-3.5 mr-1 fill-amber-500 text-amber-500" />
-                              Rating: {selectedSavedItinerary.cityData.rating}
+                              Rating:{" "}
+                              {selectedSavedItinerary.cityData?.rating || "N/A"}
                             </Badge>
                             <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100 border-none">
                               <Calendar className="h-3.5 w-3.5 mr-1 text-sky-500" />
                               Best time:{" "}
-                              {selectedSavedItinerary.cityData.best_time_to_visit.join(
-                                ", "
-                              )}
+                              {(
+                                selectedSavedItinerary.cityData
+                                  ?.best_time_to_visit || []
+                              ).join(", ") || "N/A"}
                             </Badge>
                             <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-none">
-                              <DollarSign className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                              <IndianRupeeIcon className="h-3.5 w-3.5 mr-1 text-blue-500" />
                               Est. Daily Cost: ₹
-                              {
-                                selectedSavedItinerary.cityData
-                                  .estimated_daily_cost
-                              }
+                              {selectedSavedItinerary.cityData
+                                ?.estimated_daily_cost || "N/A"}
                             </Badge>
                           </div>
 
+                          {/* Trip Details Card - Use direct saved itinerary properties */}
                           <Card className="bg-blue-50 border-blue-200">
                             <CardHeader className="pb-2">
                               <CardTitle className="text-md text-blue-800">
@@ -1095,15 +1285,18 @@ export function ItineraryGenerator() {
                                 </div>
                                 <div>
                                   <p className="text-sm text-gray-500">
-                                    Budget
+                                    Budget (Daily)
                                   </p>
                                   <p className="font-medium">
-                                    {selectedSavedItinerary.budget}
+                                    {selectedSavedItinerary.budget ===
+                                    "No limit"
+                                      ? "No limit"
+                                      : `₹${selectedSavedItinerary.budget}/day`}
                                   </p>
                                 </div>
                                 <div>
                                   <p className="text-sm text-gray-500">
-                                    Total Cost
+                                    Total Estimated Cost
                                   </p>
                                   <p className="font-medium">
                                     ₹{selectedSavedItinerary.estimatedCost}
@@ -1117,15 +1310,17 @@ export function ItineraryGenerator() {
                         <Separator />
 
                         {/* Hotels */}
-                        {selectedSavedItinerary.cityData.hotels.length > 0 && (
+                        {/* Use hotels from cityData */}
+                        {(selectedSavedItinerary.cityData?.hotels || [])
+                          .length > 0 && (
                           <div>
                             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                               <Heart className="h-4 w-4 text-rose-500" />
                               Recommended Accommodation
                             </h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {selectedSavedItinerary.cityData.hotels
-                                .slice(0, 3)
+                              {(selectedSavedItinerary.cityData.hotels || [])
+                                .slice(0, 3) // Show up to 3 hotels
                                 .map((hotel, i) => (
                                   <Card key={i} className="overflow-hidden">
                                     <div className="h-24 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center">
@@ -1164,9 +1359,11 @@ export function ItineraryGenerator() {
                         <div>
                           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-blue-500" />
-                            Day-by-Day Itinerary
+                            Day-by-Day Itinerary (
+                            {selectedSavedItinerary.duration} days)
                           </h3>
                           <div className="space-y-6">
+                            {/* Use savedItineraryDailyPlans */}
                             {savedItineraryDailyPlans.map((day) => (
                               <Card key={day.day} className="overflow-hidden">
                                 <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-700 text-white py-3 px-4">
@@ -1207,13 +1404,59 @@ export function ItineraryGenerator() {
                             ))}
                           </div>
                         </div>
+
+                        {/* Budget summary for saved itinerary - Reuse structure but use saved data */}
+                        <Card className="bg-blue-50 border-blue-200">
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-lg text-blue-800 flex items-center gap-2">
+                              <IndianRupeeIcon className="h-4 w-4 text-blue-600" />
+                              Budget Summary
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-700">
+                                  Budget set:
+                                </span>
+                                <span className="font-medium text-blue-700">
+                                  {selectedSavedItinerary.budget === "No limit"
+                                    ? "No limit"
+                                    : `₹${selectedSavedItinerary.budget}/day`}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-700">
+                                  Estimated daily cost:
+                                </span>
+                                <span className="font-medium text-blue-700">
+                                  ₹
+                                  {selectedSavedItinerary.cityData
+                                    ?.estimated_daily_cost || "N/A"}
+                                </span>
+                              </div>
+
+                              <Separator className="bg-blue-200" />
+                              <div className="flex justify-between items-center">
+                                <span className="font-semibold text-blue-800">
+                                  Total estimated trip cost (
+                                  {selectedSavedItinerary.duration} days):
+                                </span>
+                                <span className="font-bold text-lg text-blue-800">
+                                  ₹{selectedSavedItinerary.estimatedCost}
+                                </span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
                     ) : (
+                      // Placeholder when no saved itinerary is selected
                       <div className="flex h-[60vh] items-center justify-center text-gray-500 p-8 border rounded-lg bg-gray-50">
                         <div className="text-center">
                           <BookmarkCheck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                           <p className="text-lg">
-                            Select a saved trip to view details
+                            Select a saved trip from the left to view details
                           </p>
                         </div>
                       </div>
@@ -1225,6 +1468,13 @@ export function ItineraryGenerator() {
           </Tabs>
         </CardContent>
       </Card>
+      <Button
+        onClick={handleLogout}
+        disabled={loading}
+        className="w-full mt-2 py-6 text-lg bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 transition-all duration-300"
+      >
+        Log out
+      </Button>
     </div>
   );
 }
