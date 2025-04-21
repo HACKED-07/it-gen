@@ -1,10 +1,12 @@
-import type { NextConfig } from "next";
+import { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
+    localPatterns: [
       {
-        hostname: "images.unsplash.com",
+        // match anything under /public, which is served at "/"
+        pathname: "/**",
+        search: "",
       },
     ],
   },
