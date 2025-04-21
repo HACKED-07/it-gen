@@ -514,6 +514,17 @@ export function ItineraryGenerator() {
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-6">
+      <div className="flex justify-end mb-4">
+        <Button
+          onClick={handleLogout}
+          disabled={loading}
+          variant="outline"
+          size="sm"
+          className="text-blue-700 border-blue-500"
+        >
+          Log out
+        </Button>
+      </div>
       <Card className="border-none shadow-lg">
         <CardHeader className="bg-gradient-to-r from-blue-500 to-blue-700 text-white rounded-t-lg">
           <CardTitle className="text-3xl font-bold">
@@ -1468,13 +1479,6 @@ export function ItineraryGenerator() {
           </Tabs>
         </CardContent>
       </Card>
-      <Button
-        onClick={handleLogout}
-        disabled={loading}
-        className="w-full mt-2 py-6 text-lg bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 transition-all duration-300"
-      >
-        Log out
-      </Button>
     </div>
   );
 }
