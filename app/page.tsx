@@ -6,11 +6,11 @@ import BgImage from "@/public/bgImage.jpg";
 export default async function LandingPage() {
   return (
     <div className="relative min-h-screen overflow-hidden">
-      {/* Base gradient background */}
-      <div className="absolute inset-0 bg-black" />
+      {/* Base gradient background - changed from solid black to a gradient */}
+      <div className="absolute inset-0 bg-gradient-to-b from-gray-900 to-black" />
 
-      {/* Decorative image layer */}
-      <div className="absolute inset-0 opacity-20">
+      {/* Decorative image layer - increased opacity from 20% to 50% */}
+      <div className="absolute inset-0 opacity-50">
         <div className="relative h-full w-full">
           <Image
             src={BgImage}
@@ -69,19 +69,19 @@ export default async function LandingPage() {
               </div>
               <div className="flex gap-6">
                 <Link
-                  href="/terms"
+                  href="/"
                   className="hover:text-gray-300 transition-colors"
                 >
                   Terms
                 </Link>
                 <Link
-                  href="/privacy"
+                  href="/"
                   className="hover:text-gray-300 transition-colors"
                 >
                   Privacy
                 </Link>
                 <Link
-                  href="/contact"
+                  href="/"
                   className="hover:text-gray-300 transition-colors"
                 >
                   Contact
