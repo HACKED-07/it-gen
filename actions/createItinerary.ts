@@ -11,7 +11,7 @@ const createItinerarySchema = z.object({
 });
 
 // Define a type for the returned itinerary
-type ItineraryCity = {
+export type ItineraryCity = {
   city: string;
   state?: string;
   popular_destinations: {
@@ -32,7 +32,7 @@ type ItineraryCity = {
   estimated_daily_cost: number;
 };
 
-type ItineraryResult = {
+export type ItineraryResult = {
   success: boolean;
   message?: string;
   itinerary?: {
