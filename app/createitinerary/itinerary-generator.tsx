@@ -1150,14 +1150,6 @@ export function ItineraryGenerator() {
                                       })}
                                     </span>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-gray-700">
-                                      Estimated Daily Food/Other:
-                                    </span>
-                                    <span className="font-medium text-blue-700">
-                                      ₹1,500
-                                    </span>
-                                  </div>
                                   <Separator className="bg-blue-200" />
                                   <div className="flex justify-between items-center">
                                     <span className="font-semibold text-blue-800">
